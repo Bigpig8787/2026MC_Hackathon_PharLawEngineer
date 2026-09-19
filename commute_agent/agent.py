@@ -17,7 +17,9 @@ from commute_agent.tools.youbike import get_bike_status
 from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.compare_plans import compare_plans
 from commute_agent.skills.locate_place import locate_course_place
+from commute_agent.skills.departure_notify import notify_departure
 from commute_agent.skills.departure_plan import plan_departure
+from commute_agent.skills.mail_update import apply_course_mail
 from commute_agent.skills.parking_plan import plan_parking
 from commute_agent.skills.road_watch import check_route_events
 from commute_agent.skills.trip_plan import estimate_trip
@@ -121,6 +123,14 @@ root_agent = LlmAgent(
         "＜機車或開車（一人一車，最高）。在同樣趕得上、天氣也撐得住的方案之間，\n"
         "優先推薦碳排較低的那個；時間差距在十分鐘以內時值得為了低碳排多花這幾分鐘，\n"
         "但要明講多花了幾分鐘換到什麼，差距很大時就以時間與舒適度為準。\n"
+        "15. apply_course_mail：使用者貼一封教授或助教的信（教室異動、停課、改線上、考試、"
+        "報告通知）時用這支。信件只在本機 Gemma 讀，不會送雲端；status 為 unavailable 代表"
+        "本機模型沒起來，要直說信件無法處理，不可以自己讀信猜。它回的是 proposed_patch，"
+        "needs_confirmation 永遠是 True——轉述變更內容並問使用者要不要套用，不可以說已經改了課表。"
+        "new_place.is_verified 為 True 才代表新教室座標經成大 GIS 驗證。\n"
+        "16. notify_departure：使用者要「該走的時候通知我手機」「推播提醒我」時用。"
+        "它會自己算該幾點出發，時間還很充裕時 status 為 skipped（不吵人），"
+        "使用者堅持現在就要一則時傳 always=True。status 為 dry_run 代表 fixture 模式沒真的送。\n"
         + _origin_rule +
         "任何工具 status 為 error 時，如實告知使用者查詢失敗，不要編造答案。"
         "校區資訊只能來自工具回傳值，你自己不知道哪棟大樓在哪個校區，不可以猜。"
@@ -130,5 +140,6 @@ root_agent = LlmAgent(
            get_next_class, plan_parking, estimate_trip, plan_ride_and_walk,
            plan_departure, get_bike_status, get_weather, get_bus_eta,
            compare_plans, locate_classroom, locate_course_place,
+           apply_course_mail, notify_departure,
            check_route_events],
 )

@@ -24,7 +24,7 @@ VS Code 的 Python 擴充功能可能會干擾長時間執行的伺服器程序�
 ## 驗證
 
 ```powershell
-python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 382 項）
+python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 410 項）
 python scripts/smoke_ncku_gis.py 4264 65304 格致廳   # 打真實成大教室 GIS
 python scripts/smoke_tdx_road_events.py           # 打真實 TDX 路況事件（需 TDX_CLIENT_ID/SECRET）
 adk web                                          # 開 http://localhost:8000
@@ -56,6 +56,11 @@ adk web                                          # 開 http://localhost:8000
 | `get_bus_eta` | `tools/tdx_bus.py` | TDX 臺南市公車即時到站（需 `TDX_CLIENT_ID`／`SECRET`） |
 | `guess_building` | `tools/building_match.py` | 本機 Gemma 對著 `data/ncku_buildings.json`（180 棟）判斷模糊地點文字是哪一棟，答案對回清單才算數 |
 | `locate_course_place` | `skills/locate_place.py` | 課表地點 → 座標。順序：教室代碼 → GIS 原文 → **本機 Gemma** → 雲端 Gemini → Google，愈前面愈可信 |
+| `classify_course_mail` | `tools/course_mail.py` | 教授／助教的信 → 教室異動／停課／改線上／考試／報告（**只用本機 Gemma**，信不上雲端） |
+| `apply_course_mail` | `skills/mail_update.py` | 讀信 → 對到課表哪門課 → 新教室經 GIS 驗證 → 提出 patch；只提議不改課表，`needs_confirmation` 永遠 True |
+| `normalize_road_text` | `tools/road_text.py` | TDX 路況的髒地點文字（`null北外環…`）→ 行政區／路名／路段（本機 Gemma） |
+| `send_push` | `tools/push_notify.py` | 推一則通知到手機（ntfy）；fixture 模式回 dry_run 不真的送 |
+| `notify_departure` | `skills/departure_notify.py` | `plan_departure` 的結論變成手機推播：該出發＝high、來不及＝urgent、還早＝不吵人 |
 
 ### 為什麼用本機 Gemma（Ollama）
 
@@ -70,6 +75,10 @@ ollama pull gemma3:4b                     # 3.3GB，CPU 也跑得動，每筆約
 python scripts/build_ncku_buildings.py     # 重撈大樓清單（已附一份，可不跑）
 python scripts/smoke_gemma_locate.py       # 拿真實課表寫法試，順便走完 GIS 驗證
 ```
+
+本機 Gemma 現在做三件事，都有 smoke 腳本：
+`scripts/smoke_gemma_locate.py`（地點→大樓）、`scripts/smoke_course_mail.py`（讀信，
+範例信在 `fixtures/course_mail/`，是手寫的、不是真信）、`scripts/smoke_road_text.py`（路況文字）。
 
 2026-09-20 用 gemma3:4b 對十筆真實輸入實測：九筆對，校外地址兩筆都正確拒絕；
 唯一錯的「資訊大樓格致廳小講堂」在流程裡會先被 GIS 教室查詢接走，輪不到模型。
@@ -92,6 +101,16 @@ Google 只會算到大樓門口的騎車時間，但實際上得先停車再走�
 
 騎車段會明確指定走 Google，不受 `TRAVEL_TIME_PROVIDER` 影響——那段本來就是
 付費才有意義的部分。走路與自行車則交給預設的 `auto` 自行判斷要不要花錢。
+
+### 手機推播（ntfy）
+
+1. 手機裝 ntfy app（iOS／Android），訂閱一個自己取的長隨機 topic。
+2. `.env` 填 `NTFY_TOPIC=<同一個 topic>`（topic 就是收件位址，當秘密保管）。
+3. 網頁按「推播到手機」，或問 agent「該走的時候通知我手機」。
+   `PROVIDER_MODE=fixture` 時回 `dry_run`，不會真的送。
+
+只在需要打斷人的時候推：時間還很充裕會回 `skipped`；同一堂課同一個結論有
+`dedupe_key`，輪詢時不重推。之後上 Cloud Run 有 HTTPS 再加 Web Push 也不衝突。
 
 ## 課表視覺化頁面
 

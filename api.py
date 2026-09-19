@@ -21,6 +21,7 @@ FEATURE_CREDENTIALS: dict[str, tuple[str, ...]] = {
     "traffic": ("TDX_CLIENT_ID", "TDX_CLIENT_SECRET"),
     "maps": ("GOOGLE_MAPS_API_KEY",),
     "local_llm": (),  # 本機 Ollama，不需金鑰；沒起 server 就自動略過
+    "push": ("NTFY_TOPIC",),  # 手機推播；topic 名稱等於收件位址，當秘密保管
 }
 
 
@@ -53,6 +54,9 @@ class Settings:
     # 沒起 server 時自動退回雲端 Gemini
     ollama_url: str
     local_llm_model: str
+    # 手機推播（ntfy）。server 可自架；topic 知道就能收也能發，所以 repr=False
+    ntfy_server: str
+    ntfy_topic: str = field(default="", repr=False)
     # 住家地址算個資，預設留空，實際值放在 .gitignore 擋掉的 .env
     default_origin: str = field(default="", repr=False)
 
@@ -89,6 +93,8 @@ def load_settings(load_env_file: bool = True) -> Settings:
         commute_preference=_env("COMMUTE_PREFERENCE"),
         ollama_url=_env("OLLAMA_URL", "http://127.0.0.1:11434").rstrip("/"),
         local_llm_model=_env("LOCAL_LLM_MODEL", "gemma3:4b"),
+        ntfy_server=_env("NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
+        ntfy_topic=_env("NTFY_TOPIC"),
         default_origin=_env("DEFAULT_ORIGIN"),
         # 與 google-genai SDK 一致：GOOGLE_API_KEY 優先，其次 GEMINI_API_KEY
         gemini_api_key=_env("GOOGLE_API_KEY") or _env("GEMINI_API_KEY"),
@@ -105,6 +111,7 @@ _VALUE_OF = {
     "TDX_CLIENT_ID": lambda s: s.tdx_client_id,
     "TDX_CLIENT_SECRET": lambda s: s.tdx_client_secret,
     "GOOGLE_MAPS_API_KEY": lambda s: s.google_maps_api_key,
+    "NTFY_TOPIC": lambda s: s.ntfy_topic,
 }
 
 
