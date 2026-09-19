@@ -1,0 +1,65 @@
+{
+  "id": "ncku-wed-0900",
+  "title": "週三 09:00 小組報告，資訊系館 4263",
+  "commitment": {
+    "id": "c-wed-0900",
+    "title": "資料庫系統 小組報告",
+    "start": "2026-09-23T09:00:00+08:00",
+    "building_id": "csie",
+    "room": "4263",
+    "importance": "high",
+    "source": "timetable+email",
+    "confirmed": true
+  },
+  "origin": { "lat": 22.9905, "lng": 120.2280 },
+  "steps": [
+    {
+      "at": "2026-09-23T07:50:00+08:00",
+      "user_state": "home",
+      "note": "起床，一切正常",
+      "signals": {
+        "rain": { "mm_per_hour": 0, "forecast_next_hour_mm": 0 },
+        "flood": { "alerts": [] },
+        "bike": { "origin_station_id": "yb-dongning", "available": 8, "dest_station_id": "yb-ncku-north", "docks": 5, "next_station_id": "yb-ncku-east", "next_station_docks": 9 },
+        "transit": { "route_name": "5", "next_eta_min": 6, "board_stop_id": "bs-dongning", "alight_stop_id": "bs-ncku-north" },
+        "parking": { "lots": { "lot-a": { "free": 12 }, "lot-b": { "free": 30 }, "lot-c": { "free": 5 } } }
+      }
+    },
+    {
+      "at": "2026-09-23T08:15:00+08:00",
+      "user_state": "home",
+      "note": "暴雨、小東路積淹水、YouBike 借光、露天停車場關閉",
+      "signals": {
+        "rain": { "mm_per_hour": 25, "forecast_next_hour_mm": 30 },
+        "flood": { "alerts": [ { "corridor_id": "xiaodong-rd", "level": "warning" } ] },
+        "bike": { "origin_station_id": "yb-dongning", "available": 0, "dest_station_id": "yb-ncku-north", "docks": 5, "next_station_id": "yb-ncku-east", "next_station_docks": 9 },
+        "transit": { "route_name": "5", "next_eta_min": 4, "board_stop_id": "bs-dongning", "alight_stop_id": "bs-ncku-north" },
+        "parking": { "lots": { "lot-a": { "free": 0 }, "lot-b": { "free": 30 }, "lot-c": { "free": 5 } } }
+      }
+    },
+    {
+      "at": "2026-09-23T08:27:00+08:00",
+      "user_state": "home",
+      "note": "還沒出門",
+      "signals": {
+        "rain": { "mm_per_hour": 25, "forecast_next_hour_mm": 30 },
+        "flood": { "alerts": [ { "corridor_id": "xiaodong-rd", "level": "warning" } ] },
+        "bike": { "origin_station_id": "yb-dongning", "available": 0, "dest_station_id": "yb-ncku-north", "docks": 5, "next_station_id": "yb-ncku-east", "next_station_docks": 9 },
+        "transit": { "route_name": "5", "next_eta_min": 3, "board_stop_id": "bs-dongning", "alight_stop_id": "bs-ncku-north" },
+        "parking": { "lots": { "lot-a": { "free": 0 }, "lot-b": { "free": 30 }, "lot-c": { "free": 5 } } }
+      }
+    },
+    {
+      "at": "2026-09-23T08:50:00+08:00",
+      "user_state": "arrived_building",
+      "note": "到資訊系館樓下",
+      "signals": {
+        "rain": { "mm_per_hour": 18, "forecast_next_hour_mm": 10 },
+        "flood": { "alerts": [ { "corridor_id": "xiaodong-rd", "level": "warning" } ] },
+        "bike": { "origin_station_id": "yb-dongning", "available": 0, "dest_station_id": "yb-ncku-north", "docks": 5, "next_station_id": "yb-ncku-east", "next_station_docks": 9 },
+        "transit": { "route_name": "5", "next_eta_min": 9, "board_stop_id": "bs-dongning", "alight_stop_id": "bs-ncku-north" },
+        "parking": { "lots": { "lot-a": { "free": 0 }, "lot-b": { "free": 22 }, "lot-c": { "free": 2 } } }
+      }
+    }
+  ]
+}
