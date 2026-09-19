@@ -345,6 +345,12 @@ const VERDICT = {
   too_late: { label: "已經來不及準時抵達", cls: "late" },
 };
 
+const TRANSITION_VERDICT = {
+  comfortable: { label: "時間充裕", cls: "" },
+  tight: { label: "很趕", cls: "urgent" },
+  late: { label: "會遲到", cls: "late" },
+};
+
 function renderAdvice(r) {
   const box = $("advice");
   if (r.error || r.status !== "ok") {
@@ -501,6 +507,25 @@ function loadClassroom(data) {
     .then(r => r.json())
     .then(r => { classroomData = r; renderClassroom(); })
     .catch(e => { classroomData = { error: e.message }; renderClassroom(); });
+}
+
+// 課間轉場：正在上課或剛下課、下一堂很快開始時，從上一堂教室走過去來不來得及。
+// 出發地就是上一堂教室，跟下面「從出發地出發」的規劃是兩件事，所以分開顯示。
+function renderTransition(data) {
+  const t = data.transition;
+  if (!t) return "";
+  if (t.status !== "ok") return `<p class="note">${esc(t.note || "算不出課間轉場時間。")}</p>`;
+
+  const v = TRANSITION_VERDICT[t.verdict] || { label: t.verdict, cls: "" };
+  const move = t.same_building
+    ? "同一棟，不必移動"
+    : `走路約 ${t.walk_minutes} 分（${t.distance_m} 公尺）`;
+  return `<div class="trip ${v.cls}">
+    <b>課間轉場・${esc(v.label)}</b>
+    <span>${esc(t.from.place)} → ${esc(t.to.place)}</span>
+    <span>下課後 ${t.gap_minutes} 分鐘・${move}＋緩衝 ${t.buffer_minutes} 分（估算）</span>
+  </div>
+  <p class="note${t.verdict === "late" ? " warn" : ""}">${esc(t.advice)}</p>`;
 }
 
 function renderTrip(data) {
@@ -664,6 +689,7 @@ function renderHero(data) {
           ${next.corrected ? '<span class="badge">已修正</span>' : ""}</dd></div>
         <div class="row"><dt>出發地</dt><dd>${esc(next.origin || "目前位置")}</dd></div>
       </dl>
+      ${renderTransition(data)}
       ${renderTrip(data)}
       <a class="btn" href="${esc(next.route_link)}" target="_blank" rel="noopener">開啟${esc(data.travel_mode_label)}導航</a>`);
     parts.push(describePlace(next));

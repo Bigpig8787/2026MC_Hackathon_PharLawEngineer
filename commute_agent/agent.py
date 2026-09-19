@@ -15,6 +15,7 @@ from commute_agent.tools.tdx_bus import get_bus_eta
 from commute_agent.tools.weather import get_weather
 from commute_agent.tools.youbike import get_bike_status
 from commute_agent.skills.campus_walk import plan_campus_walk
+from commute_agent.skills.class_transition import plan_next_transition
 from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.compare_plans import compare_plans
 from commute_agent.skills.locate_place import locate_course_place
@@ -108,6 +109,10 @@ root_agent = LlmAgent(
         "is_real_path 為 False 代表 Google 算不出步行路線，圖上畫的只是起訖直線，\n"
         "轉述時要講明那不是真的走得通的路；directions.steps 為空代表指路文字沒有產出，\n"
         "這時只講距離與時間，不可以自己編地標。\n"
+        "16. plan_next_transition：使用者正在上課或剛下課，問「下一堂來得及嗎」、\n"
+        "「要換教室了，走過去要多久」時用這支。出發地就是上一堂的教室，不要再問使用者在哪。\n"
+        "status 為 not_applicable 代表現在不是課間，這時改用 plan_departure。\n"
+        "時間是座標直線距離的估算值，轉述要說「大約」；verdict 為 late 時要講會遲到幾分鐘。\n"
         "\n"
         "挑交通方式的原則：在「準時、舒適、環保」之間權衡。\n"
         "準時是硬性條件——會遲到的方案除非別無選擇否則不推薦，不可以為了環保讓使用者遲到。\n"
@@ -126,5 +131,5 @@ root_agent = LlmAgent(
            get_next_class, plan_parking, estimate_trip, plan_ride_and_walk,
            plan_departure, get_bike_status, get_weather, get_bus_eta,
            compare_plans, locate_classroom, locate_course_place,
-           plan_campus_walk],
+           plan_campus_walk, plan_next_transition],
 )

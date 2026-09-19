@@ -47,6 +47,7 @@ adk web                                          # 開 http://localhost:8000
 | `get_travel_time` | `tools/travel_time.py` | 時間來源的統一接口，依設定選 `estimate` 或 Google Routes，後者失敗會自動退回前者 |
 | `compute_route` | `tools/google_routes.py` | Google Routes API，真實路線時間（需金鑰、會計費） |
 | `plan_departure` | `skills/departure_plan.py` | 倒推「該幾點出發」，含進教室緩衝；考試與報告自動加長緩衝 |
+| `plan_next_transition` | `skills/class_transition.py` | 課間轉場：正在上課或剛下課時，從上一堂教室走到下一堂來不來得及；用 GIS 座標估算，不呼叫計費 API |
 | `get_bike_status` | `tools/youbike.py` | 某地點附近 YouBike 可借車輛或可還空位（免金鑰） |
 | `get_weather` | `tools/weather.py` | 中央氣象署臺南市鄉鎮預報，降雨機率與體感溫度（需 `CWA_API_KEY`） |
 | `get_bus_eta` | `tools/tdx_bus.py` | TDX 臺南市公車即時到站（需 `TDX_CLIENT_ID`／`SECRET`） |

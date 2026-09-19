@@ -34,6 +34,7 @@ from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
 from commute_agent.skills.bike_plan import plan_bike_journey
 from commute_agent.skills.campus_walk import plan_campus_walk
+from commute_agent.skills.class_transition import find_transition
 from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.departure_plan import plan_departure
@@ -227,6 +228,10 @@ def state(mode: str = "walking", vehicle: str = "機車",
     current, upcoming = find_classes(courses, moment)
     next_class = _with_route(upcoming, start, mode)
 
+    # 課間轉場：正在上課或剛下課、下一堂又很快開始時，出發地就是上一堂的教室，
+    # 不必使用者再填。用同一個（可能是模擬的）時間，才不會跟畫面上的課對不起來
+    transition = find_transition(courses, moment, current, upcoming)
+
     # 出發規劃一次算完路程、緩衝與天氣；騎車模式的分段時間也在裡面，
     # 所以上面的停車查詢不再重算，避免同一趟路重複呼叫 Google。
     # 傳入使用者上傳的那份課表，否則出發時間會依範例課表算，跟畫面顯示的課不同堂
@@ -239,6 +244,7 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "schedule_source": source,
         "current_class": _with_route(current, start, mode),
         "next_class": next_class,
+        "transition": transition,
         "departure": departure,
         # 每個模式只查自己用得到的資料：停車位要掃七個校區、公車有速率限制、
         # YouBike 要下載 6 MB，全部都查會讓每次換模式都變慢又浪費額度。
