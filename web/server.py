@@ -306,5 +306,12 @@ def index() -> FileResponse:
                         headers={"Cache-Control": "no-store"})
 
 
+@app.get("/favicon.svg")
+def favicon() -> FileResponse:
+    # 圖示不太會變，可以放心讓瀏覽器快取久一點
+    return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8080)
