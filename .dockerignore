@@ -1,0 +1,27 @@
+.git
+.gitignore
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+
+.env
+.env.*
+!.env.example
+
+# 使用者上傳辨識出來的個人課表，不進 image
+data/user_schedule.json
+
+tests/
+test.py
+pytest.ini
+
+README.md
+CampusPulse.md
+
+.adk/
+node_modules/
+dist/
+coverage/
+.DS_Store

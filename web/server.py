@@ -24,19 +24,33 @@ from zoneinfo import ZoneInfo
 import uvicorn
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api import load_settings
 from commute_agent.tools.class_schedule import PROJECT_ROOT, find_classes, load_courses
+from commute_agent.tools.floor_plan import PICTURE_DIR, PICTURE_URL_PREFIX
 from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
-from commute_agent.skills.parking_plan import plan_parking
+from commute_agent.skills.bike_plan import plan_bike_journey
+from commute_agent.skills.classroom_guide import locate_classroom
+from commute_agent.skills.locate_place import locate_course_place
+from commute_agent.skills.departure_plan import plan_departure
+from commute_agent.skills.recommend_plan import recommend_plan
+from commute_agent.skills.parking_plan import load_lot_locations, plan_parking
 from commute_agent.skills.road_watch import check_route_events
 from commute_agent.skills.trip_plan import estimate_trip
+from commute_agent.tools.tdx_bus import get_bus_eta
+from commute_agent.tools.youbike import get_bike_status
 from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
 
 WEB_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="NCKU Smart Commute")
+
+# 平面圖截圖放在版本庫的 picture/，直接以靜態檔供應；資料夾不存在時不掛，
+# 免得整個服務起不來（這些圖是選配，沒有圖頁面照常運作）
+if PICTURE_DIR.is_dir():
+    app.mount(PICTURE_URL_PREFIX, StaticFiles(directory=PICTURE_DIR), name="picture")
 
 
 def _abs_path(raw: str) -> Path:
@@ -101,25 +115,51 @@ def _resolve_building(entry: dict) -> dict:
 
 
 def _with_route(entry: dict | None, origin: str, travel_mode: str) -> dict | None:
+    """把課表上那一行變成可以按下去導航的目的地。
+
+    地點一律先過 locate_course_place：課表寫的「社科院大樓階梯教室－心理」
+    這種字串，Google 會對到名字相近的別棟，成大 GIS 則根本查不到，
+    那支會依序用教室代碼、GIS、Gemini 讀出的關鍵字去換出經過驗證的座標。
+    """
     if entry is None:
         return None
     enriched = _resolve_building(entry)
-    destination = enriched["building_name"] or enriched["location"]
-    enriched["route_link"] = build_route_link(destination, origin=origin or None,
+    place = locate_course_place(entry["location"], entry.get("room_query", ""))
+    if place["status"] == "ok":
+        target = (place["lat"], place["lon"])
+        # GIS 查不到教室代碼時，仍然把解析出的大樓名稱補上，別讓畫面空著
+        if not enriched["building_name"] and place["name"]:
+            enriched["building_name"] = place["name"]
+            enriched["corrected"] = place["name"] not in entry["location"]
+    else:
+        target = enriched["building_name"] or enriched["location"]
+    enriched["place"] = {k: place.get(k) for k in
+                         ("status", "source", "is_verified", "name", "build_id",
+                          "lat", "lon", "gemini_keyword", "error_message")}
+    enriched["route_link"] = build_route_link(target, origin=origin or None,
                                               travel_mode=travel_mode)
     enriched["origin"] = origin
     enriched["travel_mode"] = travel_mode
     return enriched
 
 
-def _parking_for(entry: dict | None, vehicle_type: str) -> dict | None:
-    """騎車或開車時才需要停車建議；目的地查不到大樓就不猜。"""
+def _parking_for(entry: dict | None, vehicle_type: str, origin: str) -> dict | None:
+    """騎車或開車時才需要停車建議；目的地查不到大樓就不猜。
+
+    這裡只列停車場，不算分段時間——那由 plan_departure 負責，
+    兩邊都算會讓同一趟行程重複呼叫 Google 兩次。
+    """
     if entry is None or not entry.get("building_name"):
         return None
     plan = plan_parking(entry["building_name"], vehicle_type)
-    if plan.get("recommended"):
-        plan["recommended"]["route_link"] = build_route_link(
-            plan["recommended"]["name"], travel_mode="driving")
+    recommended = plan.get("recommended")
+    if recommended:
+        # 停車場名稱 Google 多半找不到，但對照表裡有座標，直接用座標最準
+        known = load_lot_locations().get(recommended["name"], {})
+        target = ((known["lat"], known["lon"]) if known.get("lat") is not None
+                  else recommended["name"])
+        recommended["route_link"] = build_route_link(
+            target, origin=origin or None, travel_mode="driving")
     return plan
 
 
@@ -128,6 +168,15 @@ def _save_schedule(schedule: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(schedule, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def _bikes_for(entry: dict | None, origin: str) -> dict | None:
+    """騎 YouBike 時，起點要借得到車、終點要還得了車，兩邊都要查。"""
+    if entry is None or not origin:
+        return None
+    borrow = get_bike_status(origin, "bike")
+    ret = get_bike_status(entry["building_name"] or entry["location"], "dock")
+    return {"borrow": borrow, "return": ret}
 
 
 @app.get("/api/state")
@@ -162,7 +211,9 @@ def state(mode: str = "walking", vehicle: str = "機車",
     if not path.is_file():
         return JSONResponse({**base, "has_schedule": False, "schedule_source": "",
                              "current_class": None, "next_class": None,
-                             "trip": None, "road_events": None, "parking": None, "courses": []})
+                             "departure": None, "parking": None, "bikes": None,
+                             "bus": None, "trip": None, "road_events": None,
+                             "courses": []})
 
     try:
         courses = load_courses(path)
@@ -170,7 +221,9 @@ def state(mode: str = "walking", vehicle: str = "機車",
     except (ValueError, OSError) as exc:
         return JSONResponse({**base, "has_schedule": False, "courses": [],
                              "current_class": None, "next_class": None,
-                             "trip": None, "road_events": None, "parking": None, "schedule_source": "",
+                             "departure": None, "parking": None, "bikes": None,
+                             "bus": None, "trip": None, "road_events": None,
+                             "schedule_source": "",
                              "error": f"課表檔案讀取失敗：{exc}"}, status_code=200)
 
     current, upcoming = find_classes(courses, moment)
@@ -183,7 +236,19 @@ def state(mode: str = "walking", vehicle: str = "機車",
         trip = estimate_trip(start, destination, mode) if start else None
         # 起點與目的地都查得到座標才有意義；查不到座標的那端 check_route_events
         # 自己會標成 resolved=False，這裡只是省掉明知道會兩端都落空的呼叫
-        road_events = check_route_events(start, destination) if start else None
+        destination_place = next_class.get("place")
+        road_events = check_route_events(
+            start,
+            destination,
+            destination_place=(destination_place
+                               if destination_place and destination_place.get("status") == "ok"
+                               else None),
+        ) if start else None
+    # 出發規劃一次算完路程、緩衝與天氣；騎車模式的分段時間也在裡面，
+    # 所以上面的停車查詢不再重算，避免同一趟路重複呼叫 Google。
+    # 傳入使用者上傳的那份課表，否則出發時間會依範例課表算，跟畫面顯示的課不同堂
+    departure = (plan_departure(start, mode, vehicle, str(path))
+                 if (next_class and start) else None)
 
     return JSONResponse({
         **base,
@@ -194,9 +259,75 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "trip": trip,
         "road_events": road_events,
         # 只有騎車開車才需要停車位，步行與大眾運輸不查，省掉七次連線
-        "parking": _parking_for(next_class, vehicle) if mode == "driving" else None,
+        "departure": departure,
+        # 每個模式只查自己用得到的資料：停車位要掃七個校區、公車有速率限制、
+        # YouBike 要下載 6 MB，全部都查會讓每次換模式都變慢又浪費額度。
+        "parking": _parking_for(next_class, vehicle, start) if mode == "driving" else None,
+        "bikes": _bikes_for(next_class, start) if mode == "bicycling" else None,
+        "bus": get_bus_eta(start) if (mode == "transit" and start) else None,
         "courses": courses,
     })
+
+
+@app.get("/api/recommend")
+def recommend(origin: str | None = None, vehicle: str = "機車") -> JSONResponse:
+    """比較四種交通方式並請 Gemini 給建議。
+
+    頁面載入時就自動打，不必等使用者按按鈕 —— 建議本來就是這頁要回答的問題，
+    讓人多按一下只是把答案藏起來。但它要跑四次路程規劃（約十幾秒）又會用掉
+    一次 Gemini 額度，所以前端以「課＋出發地＋車種」為鍵去重，
+    切換交通方式或背景輪詢時不會重打。
+    """
+    settings = load_settings()
+    start = (origin or "").strip() or settings.default_origin
+    if not start:
+        return JSONResponse({"error": "沒有出發地"}, status_code=400)
+
+    path = user_schedule_path()
+    if not path.is_file():
+        return JSONResponse({"error": "還沒有課表，無法給建議"}, status_code=400)
+
+    result = recommend_plan(start, vehicle, str(path))
+    return JSONResponse(result,
+                        status_code=200 if result["status"] == "ok" else 400)
+
+
+@app.get("/api/classroom")
+def classroom(q: str, origin: str | None = None, mode: str = "walking") -> JSONResponse:
+    """查一間教室在哪棟大樓、哪一層，並附上該層平面圖。
+
+    跟 /api/state 分開是因為它多打兩次成大 GIS；課表頁載入時不必等它，
+    畫面先出來、平面圖後補，比整頁慢兩秒好。
+    """
+    settings = load_settings()
+    start = (origin or "").strip() or settings.default_origin
+    result = locate_classroom(q, start, mode)
+    return JSONResponse(result,
+                        status_code=200 if result["status"] != "error" else 400)
+
+
+@app.get("/api/youbike/route")
+def youbike_route(from_station: str, to_station: str,
+                  origin: str | None = None) -> JSONResponse:
+    """使用者在畫面上選好借還車站後，算整趟「走＋騎＋走」的時間。"""
+    settings = load_settings()
+    start = (origin or "").strip() or settings.default_origin
+    if not start:
+        return JSONResponse({"error": "沒有出發地"}, status_code=400)
+
+    path = user_schedule_path()
+    if not path.is_file():
+        return JSONResponse({"error": "還沒有課表，無法得知目的地"}, status_code=400)
+
+    moment, _, _ = resolve_now(None, settings.timezone)
+    _, upcoming = find_classes(load_courses(path), moment)
+    if upcoming is None:
+        return JSONResponse({"error": "課表裡找不到接下來的課"}, status_code=400)
+
+    target = _resolve_building(upcoming)
+    plan = plan_bike_journey(start, target["building_name"] or target["location"],
+                             from_station, to_station)
+    return JSONResponse(plan, status_code=200 if plan["status"] == "ok" else 400)
 
 
 @app.post("/api/schedule/import")
@@ -251,7 +382,16 @@ def clear_schedule() -> JSONResponse:
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    # 開發中頁面常改，被瀏覽器快取會讓人以為修正沒生效
+    return FileResponse(WEB_DIR / "index.html",
+                        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/favicon.svg")
+def favicon() -> FileResponse:
+    # 圖示不太會變，可以放心讓瀏覽器快取久一點
+    return FileResponse(WEB_DIR / "favicon.svg", media_type="image/svg+xml",
+                        headers={"Cache-Control": "public, max-age=86400"})
 
 
 if __name__ == "__main__":

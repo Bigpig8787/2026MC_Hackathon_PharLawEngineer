@@ -16,8 +16,10 @@ from commute_agent.tools.road_events import DEFAULT_RADIUS_M, get_road_events
 CITY = "Tainan"
 
 
-def _side(query: str, radius_m: float) -> dict:
-    place = resolve_place(query)
+def _side(query: str, radius_m: float, resolved_place: dict | None = None) -> dict:
+    # 課表流程若已經取得 GIS 座標，直接沿用它；重新用建築物名稱搜尋
+    # 可能觸發模糊比對，把相似的大樓（例如 A006/A105）混在一起。
+    place = resolved_place if resolved_place is not None else resolve_place(query)
     if place["status"] != "ok":
         return {
             "query": query,
@@ -49,7 +51,9 @@ def _side(query: str, radius_m: float) -> dict:
     }
 
 
-def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_RADIUS_M) -> dict:
+def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_RADIUS_M,
+                       *, origin_place: dict | None = None,
+                       destination_place: dict | None = None) -> dict:
     """檢查起點與目的地周邊 radius_m 公尺內，現在是否有車禍、施工或封閉等路況事件。
 
     適用時機：使用者要出發前，想知道路上會不會不順時使用；也適合在
@@ -71,8 +75,8 @@ def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_
         - has_events: 兩端加總是否有任何事件，方便快速判斷要不要提醒使用者
         - note: 整體說明，例如兩端都查不到座標時會說明原因
     """
-    origin_side = _side(origin, radius_m)
-    destination_side = _side(destination, radius_m)
+    origin_side = _side(origin, radius_m, origin_place)
+    destination_side = _side(destination, radius_m, destination_place)
 
     if not origin_side["resolved"] and not destination_side["resolved"]:
         return {

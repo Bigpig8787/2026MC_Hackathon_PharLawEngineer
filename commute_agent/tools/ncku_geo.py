@@ -27,9 +27,11 @@ EARTH_RADIUS_M = 6371008.8
 # 直線距離換算實際路程的粗略係數：校園道路不是直的，實測上大約多三成
 DETOUR_FACTOR = 1.3
 
-# 公尺／分鐘。步行與單車取一般成人速度，汽機車取市區含停等的平均值。
+# 公尺／分鐘。單車取一般成人速度，汽機車取市區含停等的平均值。
+# 步行原本用 80（時速 4.8 公里）算出來的時間偏短：校園裡要等紅綠燈、
+# 穿過人潮、上下樓梯，實際走起來比理論速度慢，改用 65（時速 3.9 公里）。
 SPEED_M_PER_MIN = {
-    "walking": 80.0,
+    "walking": 65.0,
     "bicycling": 250.0,
     "driving": 400.0,
 }
@@ -178,6 +180,50 @@ def get_building_location(query: str) -> dict:
         return {**result, "status": "error", "error_message": f"回應格式異常：{exc}"}
 
     result["source"] = f"{endpoint}?{urlencode({'action': 'getCentroidByBuildId', 'buildId': result['build_id']})}"
+    return result
+
+
+def get_building_centroid(build_id: str) -> dict:
+    """用 GIS 的大樓代碼直接取中心點座標。
+
+    適用時機：已經有 build_id（例如 lookup_room 回的 building_id）時走這條。
+    不要退回用名稱搜尋 —— GIS 的大樓名稱帶「A006」這種編號前綴，
+    模糊比對常常對到別棟（實測「A006 唯農大樓」會對到「A105 藝研所｜禮賢樓」）。
+
+    Args:
+        build_id: GIS 的大樓代碼，例如 "B029"、"A013"。
+
+    Returns:
+        dict，含 status、build_id、name、lat、lon；查不到時 lat/lon 為 None。
+    """
+    settings = load_settings()
+    endpoint = settings.ncku_gis_base_url.rstrip("/") + BUILDINFO_PATH
+    bid = (build_id or "").strip()
+    result = {"status": "ok", "query": bid, "build_id": bid, "name": "",
+              "lat": None, "lon": None, "campus_id": "",
+              "fetched_at": _now_iso(settings.timezone)}
+
+    if not bid:
+        return {**result, "status": "error", "error_message": "大樓代碼不可為空"}
+
+    try:
+        found = _get(endpoint, {"action": "getCentroidByBuildId", "buildId": bid,
+                                "locale": "zh-tw"}, settings.http_timeout_seconds)
+        points = found.get("data") or []
+        if not points:
+            return {**result, "status": "not_found"}
+        result["name"] = points[0].get("name", "")
+        result["lat"] = float(points[0]["lat"])
+        result["lon"] = float(points[0]["lon"])
+    except requests.Timeout:
+        return {**result, "status": "error", "error_message": "成大地理資訊系統查詢逾時"}
+    except requests.RequestException as exc:
+        return {**result, "status": "error",
+                "error_message": f"無法連線成大地理資訊系統（{type(exc).__name__}）"}
+    except (SchemaError, KeyError, TypeError, ValueError) as exc:
+        return {**result, "status": "error", "error_message": f"回應格式異常：{exc}"}
+
+    result["source"] = f"{endpoint}?{urlencode({'action': 'getCentroidByBuildId', 'buildId': bid})}"
     return result
 
 

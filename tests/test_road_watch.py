@@ -80,3 +80,22 @@ def test_radius_is_passed_through(places, monkeypatch):
     monkeypatch.setattr(road_watch, "get_road_events", spy)
     road_watch.check_route_events("圖書館", "B501 資訊工程系館", radius_m=800)
     assert captured == [800, 800]
+
+
+def test_supplied_destination_place_avoids_second_fuzzy_lookup(places, monkeypatch):
+    places["origin"] = LIBRARY
+    captured = []
+
+    def spy(city, lat, lon, radius_m):
+        captured.append((lat, lon, radius_m))
+        return {"status": "ok", "events": [], "count": 0, "mode": "fixture",
+                "source": "", "fetched_at": ""}
+
+    monkeypatch.setattr(road_watch, "get_road_events", spy)
+    result = road_watch.check_route_events(
+        "origin", "A105",
+        destination_place=CSIE,
+    )
+
+    assert result["destination"]["resolved"] is True
+    assert captured[-1] == (CSIE["lat"], CSIE["lon"], 500.0)

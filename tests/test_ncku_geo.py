@@ -3,6 +3,7 @@ import pytest
 
 from commute_agent.tools.ncku_geo import (
     DETOUR_FACTOR,
+    SPEED_M_PER_MIN,
     best_match,
     estimate_minutes,
     haversine_meters,
@@ -29,8 +30,9 @@ def test_distance_is_symmetric():
 
 
 def test_walking_estimate_applies_detour_factor():
-    # 800 公尺直線，繞路後約 1040 公尺，步行 80 公尺/分 → 13 分
-    assert estimate_minutes(800, "walking") == round(800 * DETOUR_FACTOR / 80)
+    # 直線距離先乘繞路係數，再除以步行速率；速率是可調參數，不要寫死
+    expected = round(800 * DETOUR_FACTOR / SPEED_M_PER_MIN["walking"])
+    assert estimate_minutes(800, "walking") == expected
 
 
 def test_faster_modes_take_less_time():
