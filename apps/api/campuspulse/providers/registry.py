@@ -16,10 +16,11 @@ from campuspulse.providers.routing.fixture import FixtureRoutingProvider
 from campuspulse.providers.transit.fixture import FixtureTransitProvider
 from campuspulse.providers.weather.fixture import FixtureWeatherProvider
 from campuspulse.settings import Settings
+from campuspulse.providers.routing.google_routes import GoogleRoutesProvider
 
 # kind -> (live class, settings attribute names that must be non-empty). Task 9/11 fill these.
 LIVE_SIGNAL_CLASSES: dict[str, tuple[type, tuple[str, ...]]] = {}
-LIVE_ROUTING_CLASS: tuple[type, tuple[str, ...]] | None = None
+LIVE_ROUTING_CLASS: tuple[type, tuple[str, ...]] | None = (GoogleRoutesProvider, ("google_maps_api_key",))
 
 
 @dataclass
