@@ -24,15 +24,19 @@ from zoneinfo import ZoneInfo
 import uvicorn
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from api import load_settings
 from commute_agent.tools.class_schedule import PROJECT_ROOT, find_classes, load_courses
+from commute_agent.tools.floor_plan import PICTURE_DIR, PICTURE_URL_PREFIX
 from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
 from commute_agent.skills.bike_plan import plan_bike_journey
+from commute_agent.skills.classroom_guide import locate_classroom
+from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.departure_plan import plan_departure
+from commute_agent.skills.recommend_plan import recommend_plan
 from commute_agent.skills.parking_plan import load_lot_locations, plan_parking
-from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.tdx_bus import get_bus_eta
 from commute_agent.tools.youbike import get_bike_status
 from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
@@ -40,6 +44,11 @@ from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
 WEB_DIR = Path(__file__).resolve().parent
 
 app = FastAPI(title="NCKU Smart Commute")
+
+# 平面圖截圖放在版本庫的 picture/，直接以靜態檔供應；資料夾不存在時不掛，
+# 免得整個服務起不來（這些圖是選配，沒有圖頁面照常運作）
+if PICTURE_DIR.is_dir():
+    app.mount(PICTURE_URL_PREFIX, StaticFiles(directory=PICTURE_DIR), name="picture")
 
 
 def _abs_path(raw: str) -> Path:
@@ -104,14 +113,27 @@ def _resolve_building(entry: dict) -> dict:
 
 
 def _with_route(entry: dict | None, origin: str, travel_mode: str) -> dict | None:
+    """把課表上那一行變成可以按下去導航的目的地。
+
+    地點一律先過 locate_course_place：課表寫的「社科院大樓階梯教室－心理」
+    這種字串，Google 會對到名字相近的別棟，成大 GIS 則根本查不到，
+    那支會依序用教室代碼、GIS、Gemini 讀出的關鍵字去換出經過驗證的座標。
+    """
     if entry is None:
         return None
     enriched = _resolve_building(entry)
-    destination = enriched["building_name"] or enriched["location"]
-    # 大樓名稱帶編號前綴時 Google 常對到隔壁棟，查得到座標就用座標
-    located = geocode_place(destination)
-    target = ((located["lat"], located["lon"]) if located["status"] == "ok"
-              else destination)
+    place = locate_course_place(entry["location"], entry.get("room_query", ""))
+    if place["status"] == "ok":
+        target = (place["lat"], place["lon"])
+        # GIS 查不到教室代碼時，仍然把解析出的大樓名稱補上，別讓畫面空著
+        if not enriched["building_name"] and place["name"]:
+            enriched["building_name"] = place["name"]
+            enriched["corrected"] = place["name"] not in entry["location"]
+    else:
+        target = enriched["building_name"] or enriched["location"]
+    enriched["place"] = {k: place.get(k) for k in
+                         ("status", "source", "is_verified", "name", "build_id",
+                          "lat", "lon", "gemini_keyword", "error_message")}
     enriched["route_link"] = build_route_link(target, origin=origin or None,
                                               travel_mode=travel_mode)
     enriched["origin"] = origin
@@ -223,6 +245,43 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "bus": get_bus_eta(start) if (mode == "transit" and start) else None,
         "courses": courses,
     })
+
+
+@app.get("/api/recommend")
+def recommend(origin: str | None = None, vehicle: str = "機車") -> JSONResponse:
+    """比較四種交通方式並請 Gemini 給建議。
+
+    頁面載入時就自動打，不必等使用者按按鈕 —— 建議本來就是這頁要回答的問題，
+    讓人多按一下只是把答案藏起來。但它要跑四次路程規劃（約十幾秒）又會用掉
+    一次 Gemini 額度，所以前端以「課＋出發地＋車種」為鍵去重，
+    切換交通方式或背景輪詢時不會重打。
+    """
+    settings = load_settings()
+    start = (origin or "").strip() or settings.default_origin
+    if not start:
+        return JSONResponse({"error": "沒有出發地"}, status_code=400)
+
+    path = user_schedule_path()
+    if not path.is_file():
+        return JSONResponse({"error": "還沒有課表，無法給建議"}, status_code=400)
+
+    result = recommend_plan(start, vehicle, str(path))
+    return JSONResponse(result,
+                        status_code=200 if result["status"] == "ok" else 400)
+
+
+@app.get("/api/classroom")
+def classroom(q: str, origin: str | None = None, mode: str = "walking") -> JSONResponse:
+    """查一間教室在哪棟大樓、哪一層，並附上該層平面圖。
+
+    跟 /api/state 分開是因為它多打兩次成大 GIS；課表頁載入時不必等它，
+    畫面先出來、平面圖後補，比整頁慢兩秒好。
+    """
+    settings = load_settings()
+    start = (origin or "").strip() or settings.default_origin
+    result = locate_classroom(q, start, mode)
+    return JSONResponse(result,
+                        status_code=200 if result["status"] != "error" else 400)
 
 
 @app.get("/api/youbike/route")

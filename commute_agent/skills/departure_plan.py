@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from api import load_settings
+from commute_agent.skills.bike_plan import plan_bike_journey_auto
 from commute_agent.skills.trip_plan import estimate_trip, plan_ride_and_walk
 from commute_agent.tools.class_schedule import get_next_class
 from commute_agent.tools.ncku_room import lookup_room
@@ -34,6 +35,48 @@ def buffer_minutes_for(course_name: str) -> int:
     name = course_name or ""
     extra = HIGH_STAKES_EXTRA_MINUTES if any(k in name for k in HIGH_STAKES_KEYWORDS) else 0
     return ARRIVAL_BUFFER_MINUTES + extra
+
+
+def travel_for_mode(origin: str, building: str, travel_mode: str,
+                    vehicle_type: str = "機車") -> dict:
+    """算某一種交通方式從起點到大樓要多久。
+
+    每種方式的「一趟路」定義不同，不能都當成單純的兩點移動：
+    - 騎車開車要先停車再走過去，所以是騎乘＋步行兩段。
+    - 騎 YouBike 要先走到借車站、最後從還車站走到教室，是三段；
+      只算騎乘時間會嚴重低估（實測 5 分 vs 實際 14 分）。
+    - 步行與大眾運輸才是單純的一段。
+
+    回傳 minutes（算不出來時為 None）、is_estimate、note、
+    parking（只有停車情境才有）與 bike（只有 YouBike 情境才有）。
+    """
+    if travel_mode == "driving":
+        journey = plan_ride_and_walk(origin, building, vehicle_type)
+        return {"minutes": journey.get("total_minutes"),
+                "is_estimate": bool(journey.get("ride", {}).get("is_estimate", True)),
+                "note": journey.get("note", ""),
+                "parking": journey.get("lot"), "bike": None}
+
+    if travel_mode == "bicycling":
+        journey = plan_bike_journey_auto(origin, building)
+        if journey["status"] != "ok":
+            # 附近沒有可借的車就不該假裝騎得成，但也不必讓整個比較掛掉
+            return {"minutes": None, "is_estimate": True,
+                    "note": journey.get("error_message", ""),
+                    "parking": None, "bike": None}
+        return {"minutes": journey["total_minutes"],
+                "is_estimate": bool(journey["ride"].get("is_estimate", True)),
+                "note": journey.get("note", ""), "parking": None,
+                "bike": {"from_station": journey["from_station"],
+                         "to_station": journey["to_station"],
+                         "walk_to_station": journey["walk_to_station"],
+                         "ride": journey["ride"],
+                         "walk_to_destination": journey["walk_to_destination"],
+                         "map_link": journey["map_link"]}}
+
+    trip = estimate_trip(origin, building, travel_mode)
+    return {"minutes": trip.get("minutes"), "is_estimate": trip.get("is_estimate", True),
+            "note": trip.get("note", ""), "parking": None, "bike": None}
 
 
 def _resolve_building(entry: dict) -> str:
@@ -91,18 +134,9 @@ def plan_departure(origin: str = "", travel_mode: str = "walking",
 
     building = _resolve_building(upcoming)
 
-    if travel_mode == "driving":
-        journey = plan_ride_and_walk(origin, building, vehicle_type)
-        travel = journey.get("total_minutes")
-        is_estimate = bool(journey.get("ride", {}).get("is_estimate", True))
-        source_note = journey.get("note", "")
-        parking = journey.get("lot")
-    else:
-        trip = estimate_trip(origin, building, travel_mode)
-        travel = trip.get("minutes")
-        is_estimate = trip.get("is_estimate", True)
-        source_note = trip.get("note", "")
-        parking = None
+    leg = travel_for_mode(origin, building, travel_mode, vehicle_type)
+    travel, is_estimate = leg["minutes"], leg["is_estimate"]
+    source_note, parking = leg["note"], leg["parking"]
 
     buffer = buffer_minutes_for(upcoming["name"])
     starts_at = datetime.fromisoformat(upcoming["starts_at"])
@@ -118,6 +152,7 @@ def plan_departure(origin: str = "", travel_mode: str = "walking",
         "travel_minutes": travel,
         "buffer_minutes": buffer,
         "parking": parking,
+        "bike": leg["bike"],
         "is_estimate": is_estimate,
         "now": now.isoformat(timespec="seconds"),
         "class_starts_at": upcoming["starts_at"],
@@ -150,6 +185,7 @@ def plan_departure(origin: str = "", travel_mode: str = "walking",
             "minutes_until_departure": remaining,
             "weather": {k: weather.get(k) for k in
                         ("weather", "rain_probability", "will_rain",
-                         "apparent_temperature")} if weather["status"] == "ok" else None,
+                         "temperature", "apparent_temperature")}
+                       if weather["status"] == "ok" else None,
             "weather_advice": advice,
             "note": f"路程 {travel} 分＋進教室緩衝 {buffer} 分。{source_note}"}

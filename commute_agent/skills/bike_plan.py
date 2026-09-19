@@ -16,7 +16,7 @@ from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.ncku_geo import estimate_minutes, haversine_meters
 from commute_agent.tools.route_link import build_route_link
 from commute_agent.tools.travel_time import get_travel_time
-from commute_agent.tools.youbike import fetch_stations
+from commute_agent.tools.youbike import fetch_stations, get_bike_status
 
 
 def find_station(stations: list[dict], name: str) -> dict | None:
@@ -117,3 +117,27 @@ def plan_bike_journey(origin: str, destination: str,
                  + ("來自 Google 實際路線。" if not ride.get("is_estimate", True)
                     else "亦為估算值。")),
     }
+
+
+def plan_bike_journey_auto(origin: str, destination: str) -> dict:
+    """自動挑最近的借還車站，再算整趟時間。
+
+    使用者在比較各種交通方式時不可能先手動點兩個站，所以這裡替他選：
+    出發地附近借得到車的最近一站，目的地附近還得了車的最近一站。
+    借車看可借車輛數、還車看空位數——站點爆滿時借得到車卻還不了車。
+    """
+    borrow = get_bike_status(origin, "bike")
+    if borrow["status"] != "ok" or not borrow["stations"]:
+        return {"status": "error", "total_minutes": None,
+                "error_message": borrow.get("error_message")
+                or f"「{origin}」附近沒有借得到車的 YouBike 站"}
+
+    give_back = get_bike_status(destination, "dock")
+    if give_back["status"] != "ok" or not give_back["stations"]:
+        return {"status": "error", "total_minutes": None,
+                "error_message": give_back.get("error_message")
+                or f"「{destination}」附近沒有還得了車的 YouBike 站"}
+
+    return plan_bike_journey(origin, destination,
+                             borrow["stations"][0]["name"],
+                             give_back["stations"][0]["name"])

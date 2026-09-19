@@ -14,6 +14,9 @@ from commute_agent.tools.route_link import build_route_link
 from commute_agent.tools.tdx_bus import get_bus_eta
 from commute_agent.tools.weather import get_weather
 from commute_agent.tools.youbike import get_bike_status
+from commute_agent.skills.classroom_guide import locate_classroom
+from commute_agent.skills.compare_plans import compare_plans
+from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.departure_plan import plan_departure
 from commute_agent.skills.parking_plan import plan_parking
 from commute_agent.skills.trip_plan import estimate_trip, plan_ride_and_walk
@@ -71,12 +74,41 @@ root_agent = LlmAgent(
         "9. get_bike_status：查某地點附近 YouBike 還有沒有車可借（need=\"bike\"）\n"
         "或還有沒有空位可還（need=\"dock\"）。使用者提到 YouBike、單車、\n"
         "或選自行車模式時用。可借數為 0 的站不會出現在清單裡。\n"
-        "10. get_weather：查成大東區的天氣與降雨機率。要建議交通方式前先看，\n"
-        "降雨機率高時騎車與 YouBike 都會淋濕，適合改建議公車。\n"
-        "rain_probability 為 None 代表沒有資料，不等於不會下雨，不可當成 0。\n"
+        "10. get_weather：查成大東區的天氣、降雨機率與體感溫度。要建議交通方式前先看，\n"
+        "而且要查「出發時刻」的天氣，不是現在的天氣。\n"
+        "降雨機率高時騎車與 YouBike 都會淋濕，適合改建議公車；\n"
+        "apparent_temperature 體感 32 度以上會流汗、35 度以上有中暑風險，\n"
+        "15 度以下騎車會冷，這種天氣下長距離的步行或騎乘要謹慎推薦。\n"
+        "rain_probability 為 None 代表沒有資料，不等於不會下雨，不可當成 0；\n"
+        "查不到天氣就照實說沒有資料，不可以自己假設晴天。\n"
         "11. get_bus_eta：查某地點附近公車站的即時到站時間。\n"
         "arrivals 為空代表目前沒有班次（末班已過或尚未發車），要照實說，\n"
         "絕對不可以說「馬上到」或自己編一個時間。\n"
+        "12. compare_plans：使用者問「我該怎麼去」、「騎車還是搭公車」、\n"
+        "「來得及嗎」這種需要在方案之間選擇的問題時，用這支一次拿到四種方式的\n"
+        "路程時間、最晚出發時刻與風險，再由你自己權衡後給建議。\n"
+        "late_by 大於 0 代表已經超過最晚出發時刻；minutes 為 null 代表該方式\n"
+        "目前不可行（例如附近沒有可借的 YouBike），不可以推薦它。\n"
+        "建議時要講具體數字與風險，不要只說「比較快」。\n"
+        "13. locate_classroom：使用者問「教室在哪」、「在幾樓」、「教室長怎樣」時用這支。\n"
+        "它會回傳大樓、樓層、該層平面圖與一句結論。樓層有三種來源，要照實轉述：\n"
+        "floor_source 為 \"gis\" 是成大官方資料；\"floor_plan\" 是依平面圖標示；\n"
+        "\"room_code\" 是由教室代碼推算的（大樓代號後那一碼就是樓層，代號兩碼時\n"
+        "看第三碼，42、72 這種一碼的看第二碼），是推算值，要講明不是官方資料。\n"
+        "floor_conflict 不是 None 時代表代碼推算與 GIS 對不起來，要主動告訴使用者。\n"
+        "14. locate_course_place：課表寫的地點查不到、或導航對到錯的大樓時用這支。\n"
+        "它會依序用教室代碼、成大 GIS、Gemini 讀出的關鍵字去換座標。\n"
+        "is_verified 為 False 代表座標只來自 Google、沒有經過成大 GIS 驗證，\n"
+        "轉述時要提醒使用者位置可能對到隔壁棟。\n"
+        "\n"
+        "挑交通方式的原則：在「準時、舒適、環保」之間權衡。\n"
+        "準時是硬性條件——會遲到的方案除非別無選擇否則不推薦，不可以為了環保讓使用者遲到。\n"
+        "舒適度看出發時刻的天氣與體感溫度：會淋雨、太熱或太冷時，有遮蔽的公車\n"
+        "值得多花幾分鐘，路程愈長這件事愈重要。\n"
+        "環保上碳排由低到高是：步行與 YouBike（零碳排）＜公車（多載一人幾乎不增加排放）\n"
+        "＜機車或開車（一人一車，最高）。在同樣趕得上、天氣也撐得住的方案之間，\n"
+        "優先推薦碳排較低的那個；時間差距在十分鐘以內時值得為了低碳排多花這幾分鐘，\n"
+        "但要明講多花了幾分鐘換到什麼，差距很大時就以時間與舒適度為準。\n"
         + _origin_rule +
         "任何工具 status 為 error 時，如實告知使用者查詢失敗，不要編造答案。"
         "校區資訊只能來自工具回傳值，你自己不知道哪棟大樓在哪個校區，不可以猜。"
@@ -84,5 +116,6 @@ root_agent = LlmAgent(
     ),
     tools=[lookup_room, get_parking_availability, build_route_link,
            get_next_class, plan_parking, estimate_trip, plan_ride_and_walk,
-           plan_departure, get_bike_status, get_weather, get_bus_eta],
+           plan_departure, get_bike_status, get_weather, get_bus_eta,
+           compare_plans, locate_classroom, locate_course_place],
 )

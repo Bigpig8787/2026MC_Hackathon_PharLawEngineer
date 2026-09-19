@@ -68,6 +68,22 @@
   .btn:hover { filter: brightness(1.08); }
   .note { font-size: 0.8125rem; color: var(--muted); margin: 10px 0 0; }
 
+  /* 教室平面圖 */
+  .plan { margin-top: 12px; }
+  .plan img {
+    width: 100%; border-radius: 10px; border: 1px solid var(--line);
+    background: #fff; display: block;
+  }
+  .plan figcaption { font-size: 0.8125rem; color: var(--muted); margin-top: 6px; }
+  .plan-tabs { display: flex; gap: 8px; margin-top: 12px; }
+  .plan-tabs button {
+    border: 1px solid var(--line); background: #fff; color: var(--muted);
+    border-radius: 999px; padding: 5px 14px; font-size: 0.8125rem; cursor: pointer;
+  }
+  .plan-tabs button.on { background: var(--accent-soft); color: var(--accent);
+    border-color: transparent; font-weight: 600; }
+  .floor-big { font-size: 1.5rem; font-weight: 700; margin: 4px 0 0; }
+
   /* 週課表 */
   .grid-head, .grid-body { display: grid; grid-template-columns: 3.25rem repeat(5, 1fr); }
   .grid-head div {
@@ -160,6 +176,16 @@
     :root:not([data-theme="light"]) .trip.late { background: #3a1c1c; }
   }
   .note.warn { color: var(--now); }
+  .advice-pick { font-size: 1.25rem; font-weight: 650; margin: 0 0 6px; }
+  .advice-why { margin: 0 0 12px; font-size: 0.9375rem; }
+  .src { display: inline-block; font-size: 0.75rem; padding: 2px 8px;
+         border-radius: 999px; background: var(--accent-soft); color: var(--accent);
+         margin-left: 8px; vertical-align: 3px; }
+  .src.rules { background: #fff4e5; color: var(--now); }
+  .cmp { display: grid; grid-template-columns: 1fr auto; gap: 2px 12px;
+         padding: 8px 0; border-top: 1px solid var(--border); font-size: 0.875rem; }
+  .cmp.win { font-weight: 650; }
+  .cmp .meta { color: var(--muted); font-size: 0.8125rem; }
   .trip span { font-size: 0.875rem; color: var(--muted); }
 
   /* 上課提醒橫幅：時間到才出現，用警示色跟一般卡片區隔開 */
@@ -252,7 +278,13 @@
 
   <div class="modes" id="modes"></div>
 
+  <section class="card" id="advice">
+    <p class="label">AI 建議</p>
+    <p class="spinner" id="adviceIdle">正在比較四種交通方式並請 Gemini 判斷…（約 15 秒）</p>
+  </section>
+
   <section class="card" id="hero"><p class="sub">查詢中…</p></section>
+  <section class="card" id="classroom" hidden></section>
   <section class="card" id="modeinfo" hidden></section>
   <section class="card" id="parking" hidden></section>
 
@@ -287,6 +319,135 @@ const VERDICT = {
   leave_now: { label: "該出發了", cls: "urgent" },
   too_late: { label: "已經來不及準時抵達", cls: "late" },
 };
+
+function renderAdvice(r) {
+  const box = $("advice");
+  if (r.error || r.status !== "ok") {
+    box.innerHTML = `<p class="label">AI 建議</p>
+      <p class="err">${esc(r.error || r.note || "無法取得建議")}</p>`;
+    return;
+  }
+  const cmp = r.comparison;
+  const chosen = cmp.options.find(o => o.mode === r.chosen_mode);
+  const tag = r.source === "gemini"
+    ? '<span class="src">Gemini 建議</span>'
+    : '<span class="src rules">規則排序</span>';
+
+  const rows = cmp.options.map(o => {
+    const when = o.leave_by ? "最晚 " + o.leave_by.slice(11, 16) + " 出發" : "目前不可行";
+    return `<div class="cmp${o.mode === r.chosen_mode ? " win" : ""}">
+      <div>${esc(o.label)}<div class="meta">${when}${
+        o.risks.length ? "・" + esc(o.risks.join("；")) : ""}</div></div>
+      <div>${o.minutes === null ? "—" : o.minutes + " 分"}</div></div>`;
+  }).join("");
+
+  box.innerHTML = `<p class="label">AI 建議${tag}</p>
+    <p class="advice-pick">${esc(chosen ? chosen.label : r.chosen_mode || "—")}</p>
+    <p class="advice-why">${esc(r.reason)}</p>
+    ${(r.warnings || []).map(w => `<p class="note warn">⚠ ${esc(w)}</p>`).join("")}
+    <p class="label" style="margin-top:18px">四個方案</p>${rows}
+    <p><button type="button" class="btn" id="askAdvice"
+       style="margin-top:14px">重新詢問</button></p>`;
+}
+
+// 已經問過 Gemini 的情境。課、出發地或車種沒換就不重問，
+// 免得每次切換交通方式或每輪輪詢都燒掉一次額度
+let adviceSig = "";
+
+function autoLoadAdvice(data) {
+  const next = data.next_class;
+  if (!next) { adviceSig = ""; return; }
+  const sig = [next.starts_at, next.location, data.origin, data.vehicle_type].join("|");
+  if (sig === adviceSig) return;
+  adviceSig = sig;
+  loadAdvice();
+}
+
+function loadAdvice() {
+  $("advice").innerHTML = `<p class="label">AI 建議</p>
+    <p class="spinner">正在比較四種交通方式並請 Gemini 判斷…（約 15 秒）</p>`;
+  const params = new URLSearchParams({ vehicle });
+  if (origin) params.set("origin", origin);
+  fetch(`/api/recommend?${params}`)
+    .then(r => r.json()).then(renderAdvice)
+    .catch(e => renderAdvice({ error: e.message }));
+}
+
+/* ---------- 教室位置與平面圖 ---------- */
+
+// 同一堂課不重複查：切換交通方式只換導航連結，教室位置不會變
+let classroomSig = "", classroomData = null, classroomView = "plan";
+
+const FLOOR_SOURCE_NOTE = {
+  gis: "樓層取自成大地理資訊系統。",
+  floor_plan: "成大 GIS 查不到這個代碼，樓層依平面圖上的標示。",
+  room_code: "成大 GIS 查不到，樓層由教室代碼推算。",
+};
+
+function renderClassroom() {
+  const box = $("classroom");
+  const r = classroomData;
+  if (!r) { box.hidden = true; return; }
+  box.hidden = false;
+
+  if (r.status === "error" || r.error) {
+    box.innerHTML = `<p class="label">教室位置</p>
+      <p class="err">${esc(r.error_message || r.error || "查詢失敗")}</p>`;
+    return;
+  }
+
+  const plan = r.floor_plan || {};
+  const image = classroomView === "campus" ? r.campus_map : plan.plan;
+  const tabs = r.campus_map && plan.plan
+    ? `<div class="plan-tabs">
+         <button data-view="plan" class="${classroomView === "plan" ? "on" : ""}">樓層平面圖</button>
+         <button data-view="campus" class="${classroomView === "campus" ? "on" : ""}">校區全圖</button>
+       </div>` : "";
+
+  const figure = image && image.available
+    ? `<figure class="plan"><img src="${esc(image.url)}" alt="${esc(image.caption)}">
+         <figcaption>${esc(image.caption)}</figcaption></figure>`
+    : `<p class="note">${esc(plan.error_message || "沒有這一層的平面圖。")}</p>`;
+
+  const loc = r.location || {};
+  const coords = loc.lat !== null && loc.lat !== undefined
+    ? `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}` : "查不到座標";
+
+  box.innerHTML = `<p class="label">教室位置</p>
+    <p class="floor-big">${esc(r.conclusion)}</p>
+    <dl class="rows">
+      <div class="row"><dt>教室</dt><dd>${esc(r.room_code)}${
+        r.room_name ? "（" + esc(r.room_name) + "）" : ""}</dd></div>
+      <div class="row"><dt>大樓</dt><dd>${esc(r.building_name || "查不到")}${
+        r.building_id ? ' <span class="badge">' + esc(r.building_id) + "</span>" : ""}</dd></div>
+      <div class="row"><dt>座標</dt><dd>${esc(coords)}</dd></div>
+    </dl>
+    ${tabs}
+    ${figure}
+    ${r.floor_conflict ? `<p class="note warn">⚠ ${esc(r.floor_conflict)}</p>` : ""}
+    <p class="note">${esc(FLOOR_SOURCE_NOTE[r.floor_source] || "")}
+      ${esc(r.floor_rule || "")}</p>`;
+}
+
+function loadClassroom(data) {
+  const next = data.next_class;
+  const query = next && (next.room_query || next.location);
+  if (!query) { classroomSig = ""; classroomData = null; renderClassroom(); return; }
+  const sig = query;
+  if (sig === classroomSig) { renderClassroom(); return; }
+  classroomSig = sig;
+  classroomData = null;
+  $("classroom").hidden = false;
+  $("classroom").innerHTML = `<p class="label">教室位置</p>
+    <p class="spinner">正在查成大地理資訊系統…</p>`;
+
+  const params = new URLSearchParams({ q: query, mode });
+  if (origin) params.set("origin", origin);
+  fetch(`/api/classroom?${params}`)
+    .then(r => r.json())
+    .then(r => { classroomData = r; renderClassroom(); })
+    .catch(e => { classroomData = { error: e.message }; renderClassroom(); });
+}
 
 function renderTrip(data) {
   const d = data.departure;
@@ -399,6 +560,26 @@ function renderModeInfo(data) {
   if (data.bikes) renderBikeJourney();
 }
 
+// 導航座標是怎麼來的。課表寫的地點常常查不到，使用者有權知道
+// 那個「開啟導航」按鈕到底把他帶去哪、可不可信
+function describePlace(next) {
+  const p = next.place;
+  if (!p || p.status !== "ok") {
+    const why = (p && p.error_message) || "查不到這個地點的座標";
+    return `<p class="note err">${esc(why)}，導航改用課表原文，位置可能不準。</p>`;
+  }
+  const where = esc(p.name) + (p.build_id ? `（${esc(p.build_id)}）` : "");
+  if (p.source === "gis_room_code" || p.source === "gis_text") {
+    return `<p class="note">導航座標取自成大地理資訊系統：${where}。</p>`;
+  }
+  if (p.source === "gemini_room" || p.source === "gemini_building") {
+    return `<p class="note">課表寫「${esc(next.location)}」查不到，Gemini 判讀成
+      「${esc(p.gemini_keyword)}」，再由成大 GIS 查出 ${where} 的座標。</p>`;
+  }
+  return `<p class="note warn">⚠ 成大 GIS 查不到這個地點，座標來自 Google
+    （${where}），可能對到隔壁棟。</p>`;
+}
+
 function renderHero(data) {
   const hero = document.getElementById("hero");
   const cur = data.current_class, next = data.next_class;
@@ -431,12 +612,8 @@ function renderHero(data) {
       </dl>
       ${renderTrip(data)}
       <a class="btn" href="${esc(next.route_link)}" target="_blank" rel="noopener">開啟${esc(data.travel_mode_label)}導航</a>`);
-    if (next.lookup_status === "no_room_code") {
-      parts.push('<p class="note">這堂課的地點沒有教室代碼，導航用課表原文，位置可能不夠精確。</p>');
-    } else if (next.lookup_status === "error") {
-      parts.push('<p class="note err">成大地理資訊系統查詢失敗，導航改用課表原文。</p>');
-    }
-    if (next.origin) {
+    parts.push(describePlace(next));
+    if (data.using_default_origin) {
       parts.push('<p class="note">未指定所在位置，已使用 .env 中的預設地址作為起點。</p>');
     }
   }
@@ -540,7 +717,7 @@ function renderParking(data) {
 const $ = id => document.getElementById(id);
 // 一分鐘拉一次就夠：倒數由前端自己跳，不必靠輪詢，也少打成大的系統
 const POLL_MS = 60000;
-const SECTIONS = ["demoCard", "originForm", "modes", "hero", "parking", "gridCard"];
+const SECTIONS = ["demoCard", "originForm", "modes", "hero", "classroom", "parking", "gridCard"];
 
 let bikePick = { from: null, to: null }, bikeJourney = null;
 let mode = "walking", vehicle = "機車", origin = "";
@@ -758,6 +935,8 @@ function load() {
       $("simTime").value = simNow || toLocalInput(now);
       renderModes(data.modes, data.travel_mode, data.vehicle_type);
       renderHero(data);
+      loadClassroom(data);
+      autoLoadAdvice(data);
       renderModeInfo(data);
       renderParking(data);
       renderGrid(data);
@@ -784,6 +963,17 @@ $("resetOrigin").addEventListener("click", () => {
   $("originInput").value = "";
   bikePick = { from: null, to: null }; bikeJourney = null;
   load();
+});
+
+$("advice").addEventListener("click", e => {
+  if (e.target.closest("#askAdvice")) loadAdvice();
+});
+
+$("classroom").addEventListener("click", e => {
+  const btn = e.target.closest("[data-view]");
+  if (!btn) return;
+  classroomView = btn.dataset.view;
+  renderClassroom();
 });
 
 $("modeinfo").addEventListener("click", e => {
