@@ -1,3 +1,10 @@
 API
-# api.py
+API.txt
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+coverage/
+.DS_Store
 __pycache__/
