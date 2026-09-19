@@ -60,7 +60,7 @@ def load_settings(load_env_file: bool = True) -> Settings:
     if load_env_file:
         from dotenv import load_dotenv
 
-        load_dotenv()
+        load_dotenv(override=True)
 
     mode = _env("PROVIDER_MODE", "fixture").lower()
     if mode not in VALID_PROVIDER_MODES:
