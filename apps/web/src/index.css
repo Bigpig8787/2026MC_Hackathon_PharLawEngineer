@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --cp-bg: #f5f6f8;
+  --cp-card: #ffffff;
+  --cp-ink: #1f2933;
+  --cp-muted: #6b7280;
+  --cp-accent: #1e66f5;
+  --cp-ok: #15803d;
+  --cp-warn: #b45309;
+  --cp-bad: #b91c1c;
+}
+body { margin: 0; background: var(--cp-bg); color: var(--cp-ink); font-family: system-ui, "Noto Sans TC", sans-serif; }
+.leaflet-container { height: 260px; width: 100%; border-radius: 12px; }
