@@ -9,10 +9,12 @@
 
 from __future__ import annotations
 
+import ssl
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from api import load_settings
 
@@ -29,6 +31,36 @@ RAIN_ALERT_THRESHOLD = 40
 
 class SchemaError(ValueError):
     """CWA 回應格式與預期不符。"""
+
+
+class _RelaxedStrictAdapter(HTTPAdapter):
+    """只關閉 Python 3.13 新增的 VERIFY_X509_STRICT，其餘驗證照舊。
+
+    憑證鏈與主機名稱仍然會驗證，放寬的只有「憑證必須帶 Subject Key Identifier」
+    這類格式上的嚴格檢查，不是整個關掉 SSL 驗證。
+    """
+
+    def init_poolmanager(self, *args, **kwargs):
+        context = ssl.create_default_context()
+        context.verify_flags &= ~ssl.VERIFY_X509_STRICT
+        kwargs["ssl_context"] = context
+        return super().init_poolmanager(*args, **kwargs)
+
+
+def _get_with_ssl_fallback(url: str, **kwargs) -> requests.Response:
+    """先用一般連線；憑證驗證失敗時，才改用放寬嚴格檢查的連線重試一次。
+
+    氣象署 opendata.cwa.gov.tw 的憑證缺少 Subject Key Identifier，Python 3.13
+    （OpenSSL 3.5）預設的嚴格模式會以 CERTIFICATE_VERIFY_FAILED 拒絕，
+    舊版 Python 則沒事。所以原本的連線方式維持第一選擇，真的被擋下才換；
+    連線逾時等其他錯誤不重試，憑證真的有問題時重試也一樣會失敗並照實回報。
+    """
+    try:
+        return requests.get(url, **kwargs)
+    except requests.exceptions.SSLError:
+        with requests.Session() as session:
+            session.mount("https://", _RelaxedStrictAdapter())
+            return session.get(url, **kwargs)
 
 
 def _elements(location: dict) -> dict[str, dict]:
@@ -117,7 +149,7 @@ def get_weather(district: str = DEFAULT_DISTRICT, when_iso: str = "") -> dict:
         return {**result, "status": "error", "error_message": "未設定 CWA_API_KEY"}
 
     try:
-        resp = requests.get(
+        resp = _get_with_ssl_fallback(
             f"{ENDPOINT}/{DATASET}",
             params={"Authorization": settings.cwa_api_key, "format": "JSON",
                     "LocationName": district},
