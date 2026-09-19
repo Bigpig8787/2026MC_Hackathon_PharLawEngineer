@@ -1,0 +1,8 @@
+{
+  "mode": "bike", "duration_min": 16, "distance_m": 3000, "summary": "經小東路自行車道", "corridor_ids": ["xiaodong-rd"],
+  "polyline": [[22.9905, 120.2280], [22.9930, 120.2265], [22.9960, 120.2250], [22.9985, 120.2235], [23.0003, 120.2218]],
+  "alternative": {
+    "mode": "bike", "duration_min": 19, "distance_m": 3600, "summary": "經長榮路", "corridor_ids": ["changrong-rd"],
+    "polyline": [[22.9905, 120.2280], [22.9920, 120.2300], [22.9960, 120.2290], [22.9990, 120.2250], [23.0003, 120.2218]]
+  }
+}

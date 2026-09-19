@@ -1,0 +1,8 @@
+{
+  "mode": "scooter", "duration_min": 12, "distance_m": 3200, "summary": "經小東路", "corridor_ids": ["xiaodong-rd"], "mode_proxy": "DRIVE",
+  "polyline": [[22.9905, 120.2280], [22.9930, 120.2265], [22.9960, 120.2250], [22.9985, 120.2235], [22.9997, 120.2220]],
+  "alternative": {
+    "mode": "scooter", "duration_min": 15, "distance_m": 3900, "summary": "經長榮路（避開小東路）", "corridor_ids": ["changrong-rd"], "mode_proxy": "DRIVE",
+    "polyline": [[22.9905, 120.2280], [22.9920, 120.2300], [22.9960, 120.2290], [22.9990, 120.2250], [22.9997, 120.2220]]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "mode": "walk", "duration_min": 38, "distance_m": 3000, "summary": "經小東路人行道", "corridor_ids": ["xiaodong-rd"],
+  "polyline": [[22.9905, 120.2280], [22.9930, 120.2265], [22.9960, 120.2250], [22.9985, 120.2235], [22.9996, 120.2226]],
+  "alternative": {
+    "mode": "walk", "duration_min": 42, "distance_m": 3400, "summary": "經長榮路", "corridor_ids": ["changrong-rd"],
+    "polyline": [[22.9905, 120.2280], [22.9920, 120.2300], [22.9960, 120.2290], [22.9990, 120.2250], [22.9996, 120.2226]]
+  }
+}
