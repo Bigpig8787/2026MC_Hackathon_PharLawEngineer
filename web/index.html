@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>成大智慧通勤</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --border: #e2e5ea;
+    --text: #1a1d21;
+    --muted: #6b7280;
+    --accent: #2f6f4f;
+    --accent-soft: #e6f2ec;
+    --now: #c2410c;
+    --grid-line: #eef0f3;
+    --slot-h: 1.05px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14161a;
+      --surface: #1c1f24;
+      --border: #2c3138;
+      --text: #e8eaed;
+      --muted: #9aa3ad;
+      --accent: #6cc79a;
+      --accent-soft: #1e3a2e;
+      --now: #fb923c;
+      --grid-line: #23272d;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: "Noto Sans TC", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { margin-bottom: 24px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 0.875rem; margin: 0; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 20px; margin-bottom: 24px;
+  }
+  .label {
+    font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--muted); margin: 0 0 8px;
+  }
+  .course-name { font-size: 1.375rem; font-weight: 650; margin: 0 0 12px; }
+  .rows { display: grid; gap: 8px; margin-bottom: 18px; }
+  .row { display: grid; grid-template-columns: 5.5rem 1fr; gap: 12px; font-size: 0.9375rem; }
+  .row dt { color: var(--muted); }
+  .row dd { margin: 0; }
+  .countdown { color: var(--accent); font-weight: 600; }
+  .badge {
+    display: inline-block; font-size: 0.75rem; padding: 2px 8px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent); margin-left: 6px;
+    vertical-align: 2px;
+  }
+  .btn {
+    display: inline-block; background: var(--accent); color: #fff; text-decoration: none;
+    padding: 10px 18px; border-radius: 9px; font-weight: 600; font-size: 0.9375rem;
+  }
+  .btn:hover { filter: brightness(1.08); }
+  .note { font-size: 0.8125rem; color: var(--muted); margin: 10px 0 0; }
+
+  /* 週課表 */
+  .grid-head, .grid-body { display: grid; grid-template-columns: 3.25rem repeat(5, 1fr); }
+  .grid-head div {
+    text-align: center; font-size: 0.8125rem; color: var(--muted);
+    padding-bottom: 8px; font-weight: 600;
+  }
+  .grid-body { position: relative; }
+  .axis { position: relative; }
+  .axis span {
+    position: absolute; right: 8px; transform: translateY(-50%);
+    font-size: 0.6875rem; color: var(--muted);
+  }
+  .col { position: relative; border-left: 1px solid var(--grid-line); }
+  .hour { position: absolute; left: 0; right: 0; border-top: 1px solid var(--grid-line); }
+  .block {
+    position: absolute; left: 3px; right: 3px; border-radius: 7px;
+    background: var(--accent-soft); border-left: 3px solid var(--accent);
+    padding: 5px 7px; overflow: hidden; font-size: 0.75rem;
+  }
+  .block b { display: block; font-weight: 600; font-size: 0.8125rem; }
+  .block small { color: var(--muted); }
+  .block.is-next { outline: 2px solid var(--accent); }
+  .block.is-current { background: var(--accent); border-left-color: var(--accent); }
+  .block.is-current b, .block.is-current small { color: #fff; }
+  .nowline { position: absolute; left: 0; right: 0; border-top: 2px solid var(--now); z-index: 3; }
+  .nowline::before {
+    content: ""; position: absolute; left: -4px; top: -5px;
+    width: 8px; height: 8px; border-radius: 50%; background: var(--now);
+  }
+  .err { color: #b91c1c; }
+
+  /* 交通模式選單 */
+  .modes { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .modes button {
+    font: inherit; font-size: 0.875rem; cursor: pointer;
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 999px; padding: 7px 16px;
+  }
+  .modes button:hover { border-color: var(--accent); }
+  .modes button[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  }
+  .veh { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .veh span { font-size: 0.8125rem; color: var(--muted); }
+
+  /* 停車場 */
+  .lot { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px;
+         padding: 10px 0; border-top: 1px solid var(--border); font-size: 0.9375rem; }
+  .lot:first-of-type { border-top: 0; }
+  .lot .meta { color: var(--muted); font-size: 0.8125rem; }
+  .lot .free { font-weight: 650; color: var(--accent); text-align: right; }
+  .lot.pick { background: var(--accent-soft); border-radius: 8px; padding: 12px; border-top: 0; }
+  .skipped { font-size: 0.8125rem; color: var(--muted); margin-top: 12px; }
+  .spinner { color: var(--muted); font-size: 0.875rem; }
+
+  /* 出發地 */
+  .origin { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+  .origin label { font-size: 0.8125rem; color: var(--muted); }
+  .origin input {
+    flex: 1 1 240px; font: inherit; font-size: 0.9375rem; padding: 8px 12px;
+    border: 1px solid var(--border); border-radius: 9px;
+    background: var(--surface); color: var(--text);
+  }
+  .origin input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .origin button {
+    font: inherit; font-size: 0.875rem; cursor: pointer; padding: 8px 16px;
+    border: 1px solid var(--border); border-radius: 9px;
+    background: var(--surface); color: var(--text);
+  }
+  .origin button[type="submit"] {
+    background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600;
+  }
+  .trip {
+    display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: baseline;
+    padding: 12px; border-radius: 9px; background: var(--accent-soft); margin-bottom: 16px;
+  }
+  .trip b { font-size: 1.125rem; color: var(--accent); }
+  .trip span { font-size: 0.875rem; color: var(--muted); }
+
+  /* 上課提醒橫幅：時間到才出現，用警示色跟一般卡片區隔開 */
+  .banner { display: none; background: var(--now); color: #fff;
+            border-radius: 14px; padding: 18px 20px; margin-bottom: 24px; }
+  .banner.on { display: block; }
+  .banner .label { color: rgba(255, 255, 255, 0.82); }
+  .banner h2 { margin: 0 0 6px; font-size: 1.25rem; font-weight: 650; }
+  .banner p { margin: 0 0 4px; font-size: 0.9375rem; }
+  .banner .btn { background: #fff; color: var(--now); margin-top: 12px; }
+
+  /* 上傳課表 */
+  .upload { text-align: center; padding: 26px 20px;
+            border: 1px dashed var(--border); border-radius: 12px; }
+  .upload.drag { border-color: var(--accent); background: var(--accent-soft); }
+  .upload h2 { margin: 0 0 6px; font-size: 1.125rem; }
+  .upload p { margin: 0 0 16px; color: var(--muted); font-size: 0.875rem; }
+  #fileInput { display: none; }
+  .filebtn { display: inline-block; cursor: pointer; background: var(--accent);
+             color: #fff; padding: 10px 20px; border-radius: 9px;
+             font-weight: 600; font-size: 0.9375rem; }
+  .filebtn:hover { filter: brightness(1.08); }
+  .ghost { font: inherit; font-size: 0.875rem; cursor: pointer; padding: 8px 15px;
+           border: 1px solid var(--border); border-radius: 9px;
+           background: var(--surface); color: var(--text); }
+  .ghost:hover { border-color: var(--accent); }
+  .srcline { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+             font-size: 0.8125rem; color: var(--muted); }
+  .srcline .grow { flex: 1 1 auto; }
+  .warn { color: #b45309; font-size: 0.8125rem; margin: 10px 0 0; }
+
+  /* 展示控制：demo 時用來把時間挪到上課前，查的仍是真實 API */
+  .demobar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center;
+             font-size: 0.8125rem; color: var(--muted); }
+  .demobar input[type="datetime-local"], .demobar select {
+    font: inherit; font-size: 0.875rem; padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--surface); color: var(--text);
+  }
+  .simbadge { background: var(--now); color: #fff; padding: 2px 9px;
+              border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 20px 16px 48px; }
+    .block b { font-size: 0.6875rem; }
+    .block small { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>成大智慧通勤</h1>
+    <p class="sub" id="clock">載入中…</p>
+  </header>
+
+  <div class="banner" id="banner"></div>
+
+  <section class="card" id="uploadCard"></section>
+
+  <section class="card" id="demoCard" hidden>
+    <p class="label">展示控制</p>
+    <div class="demobar">
+      <label for="leadSelect">上課前提醒</label>
+      <select id="leadSelect">
+        <option value="5">5 分鐘</option>
+        <option value="15">15 分鐘</option>
+        <option value="30" selected>30 分鐘</option>
+        <option value="60">1 小時</option>
+        <option value="180">3 小時</option>
+        <option value="1440">1 天</option>
+      </select>
+      <label for="simTime">模擬時間</label>
+      <input type="datetime-local" id="simTime">
+      <button type="button" class="ghost" id="jumpLead">跳到提醒觸發時刻</button>
+      <button type="button" class="ghost" id="jump20">跳到上課前 20 分</button>
+      <button type="button" class="ghost" id="backToNow">回到現在</button>
+      <button type="button" class="ghost" id="askNotify">開啟桌面通知</button>
+    </div>
+    <p class="note" id="demoNote">模擬時間只是換一個時間點去問同一套系統，
+      教室、車位查的仍然是真實 API。</p>
+  </section>
+
+  <form class="origin" id="originForm">
+    <label for="originInput">出發地</label>
+    <input id="originInput" type="text" placeholder="例如：成大圖書館、雲平大樓" autocomplete="off">
+    <button type="submit">更新</button>
+    <button type="button" id="resetOrigin">用預設</button>
+  </form>
+
+  <div class="modes" id="modes"></div>
+
+  <section class="card" id="hero"><p class="sub">查詢中…</p></section>
+  <section class="card" id="parking" hidden></section>
+
+  <section class="card" id="gridCard">
+    <p class="label">本週課表</p>
+    <div class="grid-head">
+      <div></div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div>
+    </div>
+    <div class="grid-body" id="grid"></div>
+  </section>
+</div>
+
+<script>
+const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const START_HOUR = 8, END_HOUR = 18;
+const PX_PER_MIN = 1.05;
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => (
+  { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const mins = t => { const [h, m] = t.split(":").map(Number); return h * 60 + m; };
+const offset = t => (mins(t) - START_HOUR * 60) * PX_PER_MIN;
+
+function describeGap(minutes) {
+  if (minutes < 0) return "已開始";
+  if (minutes < 60) return `還有 ${minutes} 分鐘`;
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  if (h < 24) return m ? `還有 ${h} 小時 ${m} 分` : `還有 ${h} 小時`;
+  return `還有 ${Math.floor(h / 24)} 天 ${h % 24} 小時`;
+}
+
+function renderTrip(data) {
+  const t = data.trip;
+  if (!t) return "";
+  if (!t.can_estimate) {
+    return `<p class="note">${esc(t.note)}</p>`;
+  }
+  return `<div class="trip">
+    <b>${esc(data.travel_mode_label)}約 ${t.minutes} 分鐘</b>
+    <span>${esc(t.origin_name)} → ${esc(t.destination_name)}・直線 ${t.distance_m} 公尺</span>
+    <span>${esc(t.note)}</span>
+  </div>`;
+}
+
+function renderHero(data) {
+  const hero = document.getElementById("hero");
+  const cur = data.current_class, next = data.next_class;
+  if (!next && !cur) { hero.innerHTML = '<p class="sub">課表裡找不到接下來的課。</p>'; return; }
+
+  const parts = [];
+  if (cur) {
+    parts.push(`<p class="label">正在上課</p>
+      <p class="course-name">${esc(cur.name)}</p>
+      <dl class="rows">
+        <div class="row"><dt>時間</dt><dd>${esc(cur.start_time)}–${esc(cur.end_time)}
+          <span class="countdown" data-until="${esc(cur.ends_at)}" data-suffix="下課"
+            >${describeGap(cur.minutes_until_end)}下課</span></dd></div>
+        <div class="row"><dt>地點</dt><dd>${esc(cur.building_name || cur.location)}
+          ${cur.floor ? esc(cur.floor) : ""}</dd></div>
+      </dl>`);
+  }
+  if (next) {
+    const where = next.building_name || next.location;
+    parts.push(`<p class="label">${cur ? "接著是" : "下一堂課"}</p>
+      <p class="course-name">${esc(next.name)}</p>
+      <dl class="rows">
+        <div class="row"><dt>時間</dt><dd>${esc(next.day_zh)} ${esc(next.start_time)}–${esc(next.end_time)}
+          <span class="countdown" data-until="${esc(next.starts_at)}"
+            >${describeGap(next.minutes_until_start)}</span></dd></div>
+        <div class="row"><dt>課表寫</dt><dd>${esc(next.location)}</dd></div>
+        <div class="row"><dt>實際位置</dt><dd>${esc(where)} ${next.floor ? esc(next.floor) : ""}
+          ${next.corrected ? '<span class="badge">已修正</span>' : ""}</dd></div>
+        <div class="row"><dt>出發地</dt><dd>${esc(next.origin || "目前位置")}</dd></div>
+      </dl>
+      ${renderTrip(data)}
+      <a class="btn" href="${esc(next.route_link)}" target="_blank" rel="noopener">開啟${esc(data.travel_mode_label)}導航</a>`);
+    if (next.lookup_status === "no_room_code") {
+      parts.push('<p class="note">這堂課的地點沒有教室代碼，導航用課表原文，位置可能不夠精確。</p>');
+    } else if (next.lookup_status === "error") {
+      parts.push('<p class="note err">成大地理資訊系統查詢失敗，導航改用課表原文。</p>');
+    }
+    if (next.origin) {
+      parts.push('<p class="note">未指定所在位置，已使用 .env 中的預設地址作為起點。</p>');
+    }
+  }
+  hero.innerHTML = parts.join("");
+}
+
+function renderGrid(data) {
+  const grid = document.getElementById("grid");
+  const height = (END_HOUR - START_HOUR) * 60 * PX_PER_MIN;
+  grid.style.height = `${height}px`;
+
+  let html = '<div class="axis">';
+  for (let h = START_HOUR; h <= END_HOUR; h++) {
+    html += `<span style="top:${(h - START_HOUR) * 60 * PX_PER_MIN}px">${h}:00</span>`;
+  }
+  html += "</div>";
+
+  const nextKey = data.next_class ? data.next_class.name + data.next_class.start_time : null;
+  const curKey = data.current_class ? data.current_class.name + data.current_class.start_time : null;
+  const now = new Date(data.now);
+  const nowDay = (now.getDay() + 6) % 7;
+
+  DAYS.forEach((day, i) => {
+    html += '<div class="col">';
+    for (let h = START_HOUR; h <= END_HOUR; h++) {
+      html += `<div class="hour" style="top:${(h - START_HOUR) * 60 * PX_PER_MIN}px"></div>`;
+    }
+    data.courses.filter(c => c.day === day).forEach(c => {
+      const top = offset(c.start_time);
+      const h = (mins(c.end_time) - mins(c.start_time)) * PX_PER_MIN;
+      const key = c.name + c.start_time;
+      const cls = key === curKey ? " is-current" : (key === nextKey ? " is-next" : "");
+      html += `<div class="block${cls}" style="top:${top}px;height:${h - 3}px">
+        <b>${esc(c.name)}</b><small>${esc(c.location)}</small></div>`;
+    });
+    if (i === nowDay) {
+      const t = (now.getHours() * 60 + now.getMinutes() - START_HOUR * 60) * PX_PER_MIN;
+      if (t >= 0 && t <= height) html += `<div class="nowline" style="top:${t}px"></div>`;
+    }
+    html += "</div>";
+  });
+  grid.innerHTML = html;
+}
+
+function renderModes(modes, active, vehicle) {
+  const box = document.getElementById("modes");
+  box.innerHTML = Object.entries(modes).map(([key, label]) =>
+    `<button data-mode="${esc(key)}" aria-pressed="${key === active}">${esc(label)}</button>`
+  ).join("") + (active === "driving" ? `<span class="veh">
+      <span>車種</span>
+      <button data-veh="機車" aria-pressed="${vehicle === "機車"}">機車</button>
+      <button data-veh="汽車" aria-pressed="${vehicle === "汽車"}">汽車</button>
+    </span>` : "");
+}
+
+function renderParking(data) {
+  const box = document.getElementById("parking");
+  const plan = data.parking;
+  if (!plan) { box.hidden = true; return; }
+  box.hidden = false;
+
+  if (plan.status === "error") {
+    box.innerHTML = `<p class="label">停車建議</p><p class="err">${esc(plan.error_message)}</p>`;
+    return;
+  }
+  const rec = plan.recommended;
+  if (!rec) {
+    box.innerHTML = `<p class="label">停車建議</p>
+      <p class="err">目前全校沒有剩餘車位達 ${plan.min_available} 位的${esc(data.vehicle_type)}停車場。</p>`;
+    return;
+  }
+
+  const line = l => {
+    const d = l.distance_m === null ? "距離未知"
+      : `距教室 ${l.distance_m} 公尺・步行約 ${l.minutes} 分`;
+    return `<div class="lot"><div><b>${esc(l.name)}</b>
+      <div class="meta">${esc(l.campus)}・${d}</div></div>
+      <div class="free">${l.available}</div></div>`;
+  };
+
+  let html = `<p class="label">停車建議（${esc(data.vehicle_type)}）</p>
+    <div class="lot pick"><div><b>${esc(rec.name)}</b>
+      <div class="meta">${esc(rec.campus)}・距教室 ${rec.distance_m} 公尺・步行約 ${rec.minutes} 分</div>
+      </div><div class="free">剩 ${rec.available}</div></div>
+    <p style="margin:14px 0 4px"><a class="btn" href="${esc(rec.route_link)}"
+       target="_blank" rel="noopener">導航到這個停車場</a></p>`;
+
+  if (plan.alternatives.length) {
+    html += `<p class="label" style="margin-top:20px">其他選擇</p>`
+      + plan.alternatives.map(line).join("");
+  }
+  if (plan.skipped_full.length) {
+    html += `<p class="skipped">已跳過車位少於 ${plan.min_available} 的停車場：
+      ${esc(plan.skipped_full.join("、"))}</p>`;
+  }
+  html += `<p class="note">${esc(plan.note)}</p>`;
+  box.innerHTML = html;
+}
+
+const $ = id => document.getElementById(id);
+// 一分鐘拉一次就夠：倒數由前端自己跳，不必靠輪詢，也少打成大的系統
+const POLL_MS = 60000;
+const SECTIONS = ["demoCard", "originForm", "modes", "hero", "parking", "gridCard"];
+
+let mode = "walking", vehicle = "機車", origin = "";
+let simNow = "", leadMin = 30;
+let lastData = null, notice = null, pollTimer = null, bannerSig = "", notifiedKey = "";
+
+// 模擬時間下的「現在」是凍結的，倒數不該繼續往前跑
+function effectiveNow() {
+  return simNow && lastData ? new Date(lastData.now) : new Date();
+}
+function minutesUntil(iso) {
+  return Math.round((new Date(iso) - effectiveNow()) / 60000);
+}
+// datetime-local 只吃本地時間的 YYYY-MM-DDTHH:MM，不能直接丟 ISO
+function toLocalInput(d) {
+  const p = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    + `T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/* ---------- 上傳課表 ---------- */
+
+function noticeHtml() {
+  if (!notice) return "";
+  const skipped = (notice.skipped || []).length
+    ? `<p class="warn">有 ${notice.skipped.length} 堂沒讀成功：`
+      + esc(notice.skipped.map(s => `${s.name}（${s.reason}）`).join("、")) + "</p>"
+    : "";
+  const cls = notice.type === "err" ? "err" : "note";
+  return `<p class="${cls}" style="margin-top:14px">${esc(notice.text)}</p>${skipped}`;
+}
+
+function renderUpload(data) {
+  const box = $("uploadCard");
+  if (!data.has_schedule) {
+    box.innerHTML = `<div class="upload" id="drop">
+      <h2>先上傳你的課表</h2>
+      <p>丟一張課表截圖進來，系統會自己讀出課程、時間與教室。</p>
+      <label class="filebtn" for="fileInput">選擇課表圖片</label>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp">
+      <p class="note" style="margin-top:14px">PNG / JPG / WebP，8 MB 以內，也可以直接把圖拖進這個框。</p>
+      ${data.has_sample ? '<p style="margin:14px 0 0"><button type="button" class="ghost" id="useSample">用範例課表</button></p>' : ""}
+      ${noticeHtml()}
+    </div>`;
+  } else {
+    box.innerHTML = `<div class="srcline">
+      <span class="grow">課表來源：${esc(data.schedule_source || "未記錄")}・共 ${data.courses.length} 堂</span>
+      <label class="ghost" for="fileInput" style="cursor:pointer">重新上傳</label>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp">
+      <button type="button" class="ghost" id="clearSchedule">清除課表</button>
+    </div>${noticeHtml()}`;
+  }
+  notice = null;
+  wireUpload();
+}
+
+function wireUpload() {
+  const input = $("fileInput");
+  if (input) input.addEventListener("change", e => uploadFile(e.target.files[0]));
+
+  const drop = $("drop");
+  if (drop) {
+    ["dragenter", "dragover"].forEach(evt => drop.addEventListener(evt, e => {
+      e.preventDefault(); drop.classList.add("drag");
+    }));
+    ["dragleave", "drop"].forEach(evt => drop.addEventListener(evt, e => {
+      e.preventDefault(); drop.classList.remove("drag");
+    }));
+    drop.addEventListener("drop", e => uploadFile(e.dataTransfer.files[0]));
+  }
+
+  const sample = $("useSample");
+  if (sample) sample.addEventListener("click", () => {
+    fetch("/api/schedule/sample", { method: "POST" })
+      .then(r => r.json())
+      .then(body => {
+        notice = body.error ? { type: "err", text: body.error }
+          : { type: "ok", text: `已載入範例課表，共 ${body.imported} 堂。` };
+        load();
+      });
+  });
+
+  const clear = $("clearSchedule");
+  if (clear) clear.addEventListener("click", () => {
+    if (!confirm("確定要清除目前的課表嗎？清除後要重新上傳。")) return;
+    fetch("/api/schedule", { method: "DELETE" }).then(() => { simNow = ""; load(); });
+  });
+}
+
+function uploadFile(file) {
+  if (!file) return;
+  $("uploadCard").innerHTML =
+    `<p class="spinner">正在讀取「${esc(file.name)}」…辨識課表大約需要幾秒鐘。</p>`;
+  const form = new FormData();
+  form.append("file", file);
+  fetch("/api/schedule/import", { method: "POST", body: form })
+    .then(r => r.json().then(body => ({ ok: r.ok, body })))
+    .then(({ ok, body }) => {
+      notice = ok
+        ? { type: "ok", text: `辨識完成，讀到 ${body.imported} 堂課。`, skipped: body.skipped }
+        : { type: "err", text: body.error || "辨識失敗", skipped: body.skipped };
+      if (ok) simNow = "";
+      load();
+    })
+    .catch(e => { notice = { type: "err", text: `上傳失敗：${e.message}` }; load(); });
+}
+
+/* ---------- 上課提醒 ---------- */
+
+function pushNotify(next, minutes, where) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    new Notification(`${next.name}・${describeGap(minutes)}上課`,
+                     { body: `${next.start_time} 開始・${where}` });
+  } catch (e) { /* 部分瀏覽器在非 HTTPS 下會擋，忽略即可 */ }
+}
+
+function renderBanner() {
+  const box = $("banner"), d = lastData, next = d && d.next_class;
+  const off = () => { box.className = "banner"; box.innerHTML = ""; bannerSig = ""; };
+  if (!next || !d.has_schedule) { off(); return; }
+
+  const minutes = minutesUntil(next.starts_at);
+  if (minutes < 0 || minutes > leadMin) { off(); notifiedKey = ""; return; }
+
+  const key = next.name + next.starts_at;
+  const sig = `${key}|${minutes}`;
+  if (sig === bannerSig) return;   // 一分鐘只重畫一次，避免導航連結一直被重建
+  bannerSig = sig;
+
+  const where = (next.building_name || next.location) + (next.floor ? ` ${next.floor}` : "");
+  const bits = [];
+  if (d.trip && d.trip.can_estimate) bits.push(`${d.travel_mode_label}約 ${d.trip.minutes} 分鐘`);
+  if (d.parking && d.parking.recommended) {
+    bits.push(`${d.parking.recommended.name}還有 ${d.parking.recommended.available} 位`);
+  }
+
+  box.className = "banner on";
+  box.innerHTML = `<p class="label">該出發了</p>
+    <h2>${esc(next.name)}・${describeGap(minutes)}上課</h2>
+    <p>${esc(next.day_zh)} ${esc(next.start_time)} 開始・${esc(where)}${
+      next.corrected ? `（課表寫「${esc(next.location)}」，已修正）` : ""}</p>
+    ${bits.length ? `<p>${esc(bits.join("・"))}</p>` : ""}
+    <a class="btn" href="${esc(next.route_link)}" target="_blank"
+       rel="noopener">開啟${esc(d.travel_mode_label)}導航</a>`;
+
+  if (notifiedKey !== key) { notifiedKey = key; pushNotify(next, minutes, where); }
+}
+
+function tick() {
+  document.querySelectorAll("[data-until]").forEach(el => {
+    el.textContent = describeGap(minutesUntil(el.dataset.until)) + (el.dataset.suffix || "");
+  });
+  renderBanner();
+}
+
+/* ---------- 載入 ---------- */
+
+function schedulePoll() {
+  clearTimeout(pollTimer);
+  if (simNow) return;   // 模擬時間是凍結的，不需要也不該繼續打後端
+  pollTimer = setTimeout(load, POLL_MS);
+}
+
+function load() {
+  clearTimeout(pollTimer);
+  $("hero").innerHTML = '<p class="spinner">查詢中…</p>';
+  if (mode === "driving") {
+    $("parking").hidden = false;
+    $("parking").innerHTML = '<p class="spinner">正在比對全校停車場車位…</p>';
+  }
+  const params = new URLSearchParams({ mode, vehicle });
+  if (origin) params.set("origin", origin);
+  if (simNow) params.set("now", simNow);
+
+  fetch(`/api/state?${params}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!("has_schedule" in data)) {   // 400：設定或參數有問題
+        $("hero").innerHTML = `<p class="err">${esc(data.error)}</p>`;
+        return;
+      }
+      lastData = data;
+      const now = new Date(data.now);
+      $("clock").innerHTML =
+        esc(now.toLocaleString("zh-TW", { dateStyle: "full", timeStyle: "short" }))
+        + (data.simulated ? ' <span class="simbadge">模擬時間</span>' : "")
+        + `・出發地 ${esc(data.origin || "目前位置")}`
+        + (data.using_default_origin ? "（預設）" : "");
+
+      renderUpload(data);
+      SECTIONS.forEach(id => { const el = $(id); if (el) el.hidden = !data.has_schedule; });
+      if (!data.has_schedule) {
+        $("banner").className = "banner";
+        bannerSig = "";
+        if (data.error) $("uploadCard").innerHTML += `<p class="err">${esc(data.error)}</p>`;
+        return;
+      }
+
+      $("originInput").placeholder = data.default_origin || "例如：成大圖書館";
+      $("leadSelect").value = String(leadMin);
+      $("simTime").value = simNow || toLocalInput(now);
+      renderModes(data.modes, data.travel_mode, data.vehicle_type);
+      renderHero(data);
+      renderParking(data);
+      renderGrid(data);
+      bannerSig = "";
+      renderBanner();
+      schedulePoll();
+    })
+    .catch(e => {
+      $("hero").innerHTML = `<p class="err">無法連線後端：${esc(e.message)}</p>`;
+    });
+}
+
+/* ---------- 事件 ---------- */
+
+$("originForm").addEventListener("submit", e => {
+  e.preventDefault();
+  origin = $("originInput").value.trim();
+  load();
+});
+
+$("resetOrigin").addEventListener("click", () => {
+  origin = "";
+  $("originInput").value = "";
+  load();
+});
+
+$("modes").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  if (btn.dataset.mode) mode = btn.dataset.mode;
+  else if (btn.dataset.veh) vehicle = btn.dataset.veh;
+  else return;
+  load();
+});
+
+$("leadSelect").addEventListener("change", e => {
+  leadMin = Number(e.target.value);
+  bannerSig = "";
+  renderBanner();
+});
+
+$("simTime").addEventListener("change", e => {
+  simNow = e.target.value;
+  load();
+});
+
+// 把時間挪到上課前 N 分鐘：多給 30 秒，確保落在提醒門檻內側
+function jumpTo(minutesBefore) {
+  const next = lastData && lastData.next_class;
+  if (!next) return;
+  const target = new Date(new Date(next.starts_at).getTime() - minutesBefore * 60000 + 30000);
+  simNow = toLocalInput(target);
+  $("simTime").value = simNow;
+  load();
+}
+
+$("jumpLead").addEventListener("click", () => jumpTo(leadMin));
+$("jump20").addEventListener("click", () => jumpTo(20));
+
+$("backToNow").addEventListener("click", () => {
+  simNow = "";
+  load();
+});
+
+$("askNotify").addEventListener("click", () => {
+  if (!("Notification" in window)) { alert("這個瀏覽器不支援桌面通知。"); return; }
+  Notification.requestPermission().then(p => {
+    $("demoNote").textContent = p === "granted"
+      ? "桌面通知已開啟，提醒觸發時會同時跳出系統通知。"
+      : "瀏覽器拒絕了通知權限，畫面上的提醒橫幅仍然會出現。";
+  });
+});
+
+setInterval(tick, 1000);
+load();
+</script>
+</body>
+</html>

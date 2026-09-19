@@ -1,0 +1,13 @@
+# SkillToolset 仍屬實驗性功能，鎖定版本避免 API 變動
+google-adk==2.9.2
+requests>=2.31
+# google-genai 會用 aiohttp.ClientConnectorDNSError（3.11.0 才有），
+# 但它只宣告 >=3.10.11，裝到舊版時 adk web 的串流會在執行期才炸
+aiohttp>=3.11
+python-dotenv>=1.0
+beautifulsoup4>=4.12
+# FastAPI 接檔案上傳（課表截圖）需要
+python-multipart>=0.0.9
+# Windows 沒有內建時區資料庫，zoneinfo 需要它
+tzdata>=2024.1
+pytest>=8.0

@@ -1,10 +1,26 @@
+# 秘密（沿用 CampusPulse 規範）
 API
 API.txt
 .env
 .env.*
 !.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# 使用者上傳辨識出來的個人課表（含課名與教室，算個資）
+data/user_schedule.json
+
+# ADK 本機執行產物
+.adk/
+
+# 其他
 node_modules/
 dist/
 coverage/
 .DS_Store
-__pycache__/
+.playwright-mcp/
