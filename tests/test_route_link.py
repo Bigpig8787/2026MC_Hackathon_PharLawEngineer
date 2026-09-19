@@ -80,3 +80,34 @@ def test_waypoints_are_joined_for_google_maps():
 def test_empty_waypoints_are_omitted():
     link = build_route_link("B501 資訊工程系館", waypoints=["", "  ", None])
     assert "waypoints" not in link
+
+
+def test_coordinates_are_sent_verbatim_not_as_a_place_name():
+    # 這是重點：座標不該被加上校名，否則 Google 會當成地名去猜
+    link = build_route_link((22.997228, 120.220837))
+    assert "destination=22.997228%2C120.220837" in link
+    assert "%E6%88%90%E5%8A%9F%E5%A4%A7%E5%AD%B8" not in link
+
+
+def test_origin_coordinates_are_sent_verbatim():
+    link = build_route_link("B501 資訊工程系館", origin=(22.9873, 120.2204))
+    assert "origin=22.9873%2C120.2204" in link
+
+
+def test_waypoint_coordinates_are_sent_verbatim():
+    link = build_route_link((22.996, 120.222), origin=(22.987, 120.220),
+                            travel_mode="bicycling",
+                            waypoints=[(22.9888, 120.2209), (22.9960, 120.2221)])
+    assert "22.9888%2C120.2209" in link
+    assert "22.996%2C120.2221" in link
+
+
+def test_origin_name_is_not_prefixed_with_campus():
+    # 起點常是校外住家地址，補校名反而害它找不到
+    link = build_route_link("B501 資訊工程系館", origin="台南市東區某路一段1號")
+    assert "origin=%E5%8F%B0%E5%8D%97" in link
+
+
+def test_name_already_carrying_campus_is_not_doubled():
+    link = build_route_link("國立成功大學 B501 資訊工程系館")
+    assert link.count("%E5%9C%8B%E7%AB%8B%E6%88%90%E5%8A%9F%E5%A4%A7%E5%AD%B8") == 1

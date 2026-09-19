@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
 from commute_agent.tools.travel_time import get_travel_time
 
@@ -47,6 +48,10 @@ def estimate_trip(origin: str, destination: str, travel_mode: str = "walking") -
                 "error_message": f"不支援的交通模式 {travel_mode!r}"}
 
     timing = get_travel_time(origin, destination, travel_mode)
+    # 連結也用座標，跟時間計算走同一份定位，避免「算的是這棟、導到那棟」
+    located = geocode_place(destination)
+    link_target = ((located["lat"], located["lon"]) if located["status"] == "ok"
+                   else destination)
     result = {
         "status": "ok",
         "origin": origin,
@@ -62,7 +67,7 @@ def estimate_trip(origin: str, destination: str, travel_mode: str = "walking") -
         "unresolved": timing.get("unresolved"),
         "origin_name": timing.get("origin_name") or origin,
         "destination_name": timing.get("destination_name") or destination,
-        "route_link": build_route_link(destination, origin=origin or None,
+        "route_link": build_route_link(link_target, origin=origin or None,
                                        travel_mode=travel_mode),
     }
 

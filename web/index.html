@@ -338,8 +338,10 @@ function renderBikeJourney() {
   const w1 = j.walk_to_station, r = j.ride, w2 = j.walk_to_destination;
   box.innerHTML = `<div class="trip">
       <b>${j.total_minutes === null ? "無法計算總時間" : "整趟約 " + j.total_minutes + " 分鐘"}</b>
-      <span>走到 ${esc(j.from_station.name)} ${w1.minutes} 分（${w1.distance_m} 公尺）</span>
-      <span>＋ 騎到 ${esc(j.to_station.name)} ${r.minutes === null ? "—" : r.minutes + " 分"}
+      <span>走到 ${esc(j.from_station.name)} ${w1.minutes} 分（${w1.distance_m} 公尺）${j.from_station.address ? "・" + esc(j.from_station.address) : ""}</span>
+      <span>＋ 騎到 ${esc(j.to_station.name)}${
+        j.to_station.address ? "（" + esc(j.to_station.address) + "）" : ""} ${
+        r.minutes === null ? "—" : r.minutes + " 分"}
         ${r.distance_m ? "（" + r.distance_m + " 公尺）" : ""}
         ${r.is_estimate ? "（估算）" : "（Google 實際路線）"}</span>
       <span>＋ 走到 ${esc(j.destination)} ${w2.minutes} 分（${w2.distance_m} 公尺）</span>
@@ -772,13 +774,25 @@ function load() {
 $("originForm").addEventListener("submit", e => {
   e.preventDefault();
   origin = $("originInput").value.trim();
+  bikePick = { from: null, to: null }; bikeJourney = null;
   load();
 });
 
 $("resetOrigin").addEventListener("click", () => {
   origin = "";
   $("originInput").value = "";
+  bikePick = { from: null, to: null }; bikeJourney = null;
   load();
+});
+
+$("modeinfo").addEventListener("click", e => {
+  const btn = e.target.closest(".pickable");
+  if (!btn) return;
+  const role = btn.dataset.role, name = btn.dataset.station;
+  // 再點一次同一站就取消選取
+  bikePick[role] = bikePick[role] === name ? null : name;
+  if (lastData) renderModeInfo(lastData);
+  loadBikeJourney();
 });
 
 $("modes").addEventListener("click", e => {

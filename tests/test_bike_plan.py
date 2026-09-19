@@ -8,8 +8,10 @@ HOME = {"status": "ok", "lat": 22.9873692, "lon": 120.2204914, "name": "某路�
 CSIE = {"status": "ok", "lat": 22.997228, "lon": 120.220837, "name": "B501 資訊工程系館"}
 
 STATIONS = [
-    {"name": "勝利國小(長榮路)", "lat": 22.98884, "lon": 120.22095, "bikes": 2, "docks": 18},
-    {"name": "大學長榮", "lat": 22.99602, "lon": 120.22216, "bikes": 9, "docks": 41},
+    {"name": "勝利國小(長榮路)", "lat": 22.98884, "lon": 120.22095, "bikes": 2,
+     "docks": 18, "address": "長榮路二段88號西側"},
+    {"name": "大學長榮", "lat": 22.99602, "lon": 120.22216, "bikes": 9,
+     "docks": 41, "address": "長榮路三段139號東北側"},
 ]
 
 
@@ -98,3 +100,17 @@ def test_unknown_station_is_an_error(world):
     r = plan(from_station="不存在的站")
     assert r["status"] == "error"
     assert "不存在的站" in r["error_message"]
+
+
+def test_station_addresses_are_returned(world):
+    # 站名 Google 查無結果，介面需要地址讓使用者確認是不是同一站
+    r = plan()
+    assert r["from_station"]["address"] == "長榮路二段88號西側"
+    assert r["to_station"]["address"] == "長榮路三段139號東北側"
+
+
+def test_map_link_uses_coordinates_not_station_names(world):
+    # 這是「大學長榮被導到長榮大學」的根因：站名交給 Google 會查無結果
+    link = plan()["map_link"]
+    assert "大學長榮" not in link
+    assert "22.98884" in link or "22.99602" in link

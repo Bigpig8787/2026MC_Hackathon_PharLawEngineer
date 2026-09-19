@@ -31,7 +31,8 @@ from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
 from commute_agent.skills.bike_plan import plan_bike_journey
 from commute_agent.skills.departure_plan import plan_departure
-from commute_agent.skills.parking_plan import plan_parking
+from commute_agent.skills.parking_plan import load_lot_locations, plan_parking
+from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.tdx_bus import get_bus_eta
 from commute_agent.tools.youbike import get_bike_status
 from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
@@ -107,7 +108,11 @@ def _with_route(entry: dict | None, origin: str, travel_mode: str) -> dict | Non
         return None
     enriched = _resolve_building(entry)
     destination = enriched["building_name"] or enriched["location"]
-    enriched["route_link"] = build_route_link(destination, origin=origin or None,
+    # 大樓名稱帶編號前綴時 Google 常對到隔壁棟，查得到座標就用座標
+    located = geocode_place(destination)
+    target = ((located["lat"], located["lon"]) if located["status"] == "ok"
+              else destination)
+    enriched["route_link"] = build_route_link(target, origin=origin or None,
                                               travel_mode=travel_mode)
     enriched["origin"] = origin
     enriched["travel_mode"] = travel_mode
@@ -123,9 +128,14 @@ def _parking_for(entry: dict | None, vehicle_type: str, origin: str) -> dict | N
     if entry is None or not entry.get("building_name"):
         return None
     plan = plan_parking(entry["building_name"], vehicle_type)
-    if plan.get("recommended"):
-        plan["recommended"]["route_link"] = build_route_link(
-            plan["recommended"]["name"], origin=origin or None, travel_mode="driving")
+    recommended = plan.get("recommended")
+    if recommended:
+        # 停車場名稱 Google 多半找不到，但對照表裡有座標，直接用座標最準
+        known = load_lot_locations().get(recommended["name"], {})
+        target = ((known["lat"], known["lon"]) if known.get("lat") is not None
+                  else recommended["name"])
+        recommended["route_link"] = build_route_link(
+            target, origin=origin or None, travel_mode="driving")
     return plan
 
 
@@ -291,7 +301,9 @@ def clear_schedule() -> JSONResponse:
 
 @app.get("/")
 def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+    # 開發中頁面常改，被瀏覽器快取會讓人以為修正沒生效
+    return FileResponse(WEB_DIR / "index.html",
+                        headers={"Cache-Control": "no-store"})
 
 
 if __name__ == "__main__":

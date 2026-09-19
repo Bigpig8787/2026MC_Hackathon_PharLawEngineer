@@ -93,8 +93,12 @@ def plan_bike_journey(origin: str, destination: str,
         "status": "ok",
         "origin": origin,
         "destination": end["name"] or destination,
-        "from_station": {"name": borrow["name"], "bikes": borrow["bikes"]},
-        "to_station": {"name": give_back["name"], "docks": give_back["docks"]},
+        # 附上官方地址：站名（例如「大學長榮」）Google 的地理編碼查無結果，
+        # 給使用者地址才能一眼確認連結指的是不是同一站
+        "from_station": {"name": borrow["name"], "bikes": borrow["bikes"],
+                         "address": borrow.get("address", "")},
+        "to_station": {"name": give_back["name"], "docks": give_back["docks"],
+                       "address": give_back.get("address", "")},
         "walk_to_station": walk_in,
         "ride": {"minutes": ride_minutes, "distance_m": ride.get("distance_m"),
                  "provider": ride.get("provider"),
@@ -102,9 +106,13 @@ def plan_bike_journey(origin: str, destination: str,
                  "unavailable_reason": ride.get("reason") if ride["status"] != "ok" else None},
         "walk_to_destination": walk_out,
         "total_minutes": total,
+        # 四個點全部給座標：站名（例如「勝利國小(長榮路)」）交給 Google 猜
+        # 很容易落到別處，而這些座標我們算距離時本來就查過了
         "map_link": build_route_link(
-            end["name"] or destination, origin=origin, travel_mode="bicycling",
-            waypoints=[borrow["name"], give_back["name"]]),
+            (end["lat"], end["lon"]),
+            origin=(start["lat"], start["lon"]), travel_mode="bicycling",
+            waypoints=[(borrow["lat"], borrow["lon"]),
+                       (give_back["lat"], give_back["lon"])]),
         "note": ("走路段為直線距離估算，騎乘段"
                  + ("來自 Google 實際路線。" if not ride.get("is_estimate", True)
                     else "亦為估算值。")),
