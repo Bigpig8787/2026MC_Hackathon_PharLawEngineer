@@ -24,7 +24,7 @@ VS Code 的 Python 擴充功能可能會干擾長時間執行的伺服器程序�
 ## 驗證
 
 ```powershell
-python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 182 項）
+python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 382 項）
 python scripts/smoke_ncku_gis.py 4264 65304 格致廳   # 打真實成大教室 GIS
 python scripts/smoke_tdx_road_events.py           # 打真實 TDX 路況事件（需 TDX_CLIENT_ID/SECRET）
 adk web                                          # 開 http://localhost:8000
@@ -54,6 +54,28 @@ adk web                                          # 開 http://localhost:8000
 | `get_bike_status` | `tools/youbike.py` | 某地點附近 YouBike 可借車輛或可還空位（免金鑰） |
 | `get_weather` | `tools/weather.py` | 中央氣象署臺南市鄉鎮預報，降雨機率與體感溫度（需 `CWA_API_KEY`） |
 | `get_bus_eta` | `tools/tdx_bus.py` | TDX 臺南市公車即時到站（需 `TDX_CLIENT_ID`／`SECRET`） |
+| `guess_building` | `tools/building_match.py` | 本機 Gemma 對著 `data/ncku_buildings.json`（180 棟）判斷模糊地點文字是哪一棟，答案對回清單才算數 |
+| `locate_course_place` | `skills/locate_place.py` | 課表地點 → 座標。順序：教室代碼 → GIS 原文 → **本機 Gemma** → 雲端 Gemini → Google，愈前面愈可信 |
+
+### 為什麼用本機 Gemma（Ollama）
+
+課表、教授信、住家附近的描述是個資。能在自己機器上讀完，就不必送雲端；
+沒網路或 Gemini 額度用完時也還能動。這是題目要 Gemma 的理由（行動端／離線／隱私），
+不是為了湊模型數。分工原則：**個資類文字 → 本機 Gemma；公開的城市資料（路況、
+天氣、公車）→ 雲端 Gemini**。
+
+```powershell
+winget install Ollama.Ollama
+ollama pull gemma3:4b                     # 3.3GB，CPU 也跑得動，每筆約 4–8 秒
+python scripts/build_ncku_buildings.py     # 重撈大樓清單（已附一份，可不跑）
+python scripts/smoke_gemma_locate.py       # 拿真實課表寫法試，順便走完 GIS 驗證
+```
+
+2026-09-20 用 gemma3:4b 對十筆真實輸入實測：九筆對，校外地址兩筆都正確拒絕；
+唯一錯的「資訊大樓格致廳小講堂」在流程裡會先被 GIS 教室查詢接走，輪不到模型。
+模型只准挑清單裡的名字，回的名稱對不回清單就當編造；座標一律由 GIS 提供，
+模型不准講經緯度。Ollama 沒起來時 `guess_building` 回 `unavailable`，整條流程
+自動退回雲端 Gemini，不會炸。
 
 ### 騎車行程為什麼要拆兩段
 
