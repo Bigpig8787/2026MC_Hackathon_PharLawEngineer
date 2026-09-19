@@ -12,6 +12,9 @@ __pycache__/
 venv/
 .pytest_cache/
 
+# 使用者上傳辨識出來的個人課表（含課名與教室，算個資）
+data/user_schedule.json
+
 # ADK 本機執行產物
 .adk/
 
