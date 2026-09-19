@@ -21,6 +21,7 @@ MODE_FOOTPRINT 常數而非交給模型自由發揮，因為各方式的高低�
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from api import load_settings
 from commute_agent.skills.compare_plans import compare_plans
@@ -86,6 +87,10 @@ INSTRUCTION = """你是替成大學生規劃通勤的助理。下面是同一趟
                                for label, note in MODE_FOOTPRINT.items()))
 
 
+# 偏好是使用者自己輸入、會原樣放進 prompt 的文字，限制長度避免拿來塞一大段指令
+MAX_PREFERENCE_CHARS = 300
+
+
 def _payload(result: dict, preference: str) -> str:
     options = [{k: option.get(k) for k in PROMPT_FIELDS}
                for option in result["options"]]
@@ -111,7 +116,8 @@ def _fallback(result: dict, reason: str) -> dict:
 
 
 def recommend_plan(origin: str = "", vehicle_type: str = "機車",
-                   schedule_path: str = "") -> dict:
+                   schedule_path: str = "", preference: str = "",
+                   now: datetime | None = None) -> dict:
     """比較各交通方式後，交給 Gemini 選出最適合的一個並說明理由。
 
     適用時機：使用者問「我今天該怎麼去」、「下雨要搭什麼」這類需要權衡的問題。
@@ -121,6 +127,9 @@ def recommend_plan(origin: str = "", vehicle_type: str = "機車",
         origin: 出發地。留空則用 .env 的 DEFAULT_ORIGIN。
         vehicle_type: 開車模式要停的車種，"機車" 或 "汽車"。
         schedule_path: 要依哪一份課表建議，留空表示用預設課表。
+        preference: 這位使用者的通勤偏好（一句話）。留空則用 .env 的
+            COMMUTE_PREFERENCE；網頁讓使用者自己設定並帶進來。
+        now: 用哪個時間當「現在」，留空是真實時間（網頁的模擬時間靠它）。
 
     Returns:
         dict，包含：
@@ -130,7 +139,10 @@ def recommend_plan(origin: str = "", vehicle_type: str = "機車",
         - comparison: compare_plans 的完整結果，供介面顯示各方案細節
     """
     settings = load_settings()
-    result = compare_plans(origin, vehicle_type, schedule_path)
+    # 只有明確指定時才傳 now，舊的呼叫端與測試替身不必跟著改簽名
+    result = compare_plans(origin, vehicle_type, schedule_path,
+                           **({"now": now} if now is not None else {}))
+    preference = (preference or settings.commute_preference or "").strip()[:MAX_PREFERENCE_CHARS]
     if result["status"] != "ok":
         return {**result, "source": "rules", "chosen_mode": None,
                 "reason": "", "warnings": []}
@@ -148,7 +160,7 @@ def recommend_plan(origin: str = "", vehicle_type: str = "機車",
     try:
         response = client.models.generate_content(
             model=settings.gemini_model,
-            contents=[INSTRUCTION, _payload(result, settings.commute_preference)],
+            contents=[INSTRUCTION, _payload(result, preference)],
             config=types.GenerateContentConfig(
                 response_mime_type="application/json",
                 response_schema=RESPONSE_SCHEMA),

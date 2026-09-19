@@ -137,7 +137,7 @@ def load_courses(path: Path) -> list[dict]:
     return courses
 
 
-def get_next_class(schedule_path: str = "") -> dict:
+def get_next_class(schedule_path: str = "", now: datetime | None = None) -> dict:
     """查使用者的課表，回傳現在正在上的課與下一堂課。
 
     適用時機：使用者問「我下一堂課在哪」、「等一下要去哪上課」、
@@ -147,6 +147,8 @@ def get_next_class(schedule_path: str = "") -> dict:
         schedule_path: 要讀哪一份課表。留空表示用設定裡的預設課表。
             網頁會傳入使用者上傳辨識出來的那一份，否則出發時間會依範例
             課表計算，跟畫面上顯示的課不是同一堂。
+        now: 用哪個時間當「現在」，留空是真實時間。網頁的模擬時間靠它，
+            否則畫面顯示的是模擬時間的下一堂，這裡卻用真實時間去找。
 
     Returns:
         dict，包含：
@@ -160,7 +162,7 @@ def get_next_class(schedule_path: str = "") -> dict:
     """
     settings = load_settings()
     tz = settings.timezone
-    now = datetime.now(ZoneInfo(tz))
+    now = now or datetime.now(ZoneInfo(tz))
     path = Path(schedule_path or settings.class_schedule_path)
     if not path.is_absolute():
         path = PROJECT_ROOT / path

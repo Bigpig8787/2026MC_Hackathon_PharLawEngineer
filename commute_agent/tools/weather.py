@@ -17,6 +17,7 @@ import requests
 from requests.adapters import HTTPAdapter
 
 from api import load_settings
+from commute_agent.scenario import simulated
 
 DATASET = "F-D0047-077"          # 臺南市 逐3小時預報
 ENDPOINT = "https://opendata.cwa.gov.tw/api/v1/rest/datastore"
@@ -117,6 +118,7 @@ def parse_forecast(location: dict, when: datetime) -> dict:
     }
 
 
+@simulated("weather")
 def get_weather(district: str = DEFAULT_DISTRICT, when_iso: str = "") -> dict:
     """查成大所在地區的天氣預報，用來判斷要不要帶傘或改交通方式。
 
