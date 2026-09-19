@@ -24,8 +24,9 @@ VS Code 的 Python 擴充功能可能會干擾長時間執行的伺服器程序�
 ## 驗證
 
 ```powershell
-python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 47 項）
+python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 182 項）
 python scripts/smoke_ncku_gis.py 4264 65304 格致廳   # 打真實成大教室 GIS
+python scripts/smoke_tdx_road_events.py           # 打真實 TDX 路況事件（需 TDX_CLIENT_ID/SECRET）
 adk web                                          # 開 http://localhost:8000
 ```
 
@@ -43,6 +44,8 @@ adk web                                          # 開 http://localhost:8000
 | `get_building_location` | `tools/ncku_geo.py` | 大樓名稱 → 經緯度，另含距離與時間估算的純函式 |
 | `plan_parking` | `skills/parking_plan.py` | 目的地大樓＋車種 → 最近且車位足夠的停車場（Skill 層，會串多個 Tool） |
 | `estimate_trip` | `skills/trip_plan.py` | 起點＋目的地 → 距離與估算時間，起點在校外時明確回報無法估算 |
+| `get_road_events` | `tools/road_events.py` | 座標＋半徑 → 周邊 TDX 即時路況事件（車禍、施工、封閉），需 `TDX_CLIENT_ID`/`TDX_CLIENT_SECRET` |
+| `check_route_events` | `skills/road_watch.py` | 起點＋目的地 → 各自周邊有沒有路況事件（Skill 層，串 `resolve_place` 與 `get_road_events`） |
 
 ## 課表視覺化頁面
 
@@ -70,6 +73,13 @@ adk web                                          # 開 http://localhost:8000
   重建對照表：`./.venv/bin/python scripts/build_parking_locations.py`
 - **兩套校區代碼不相通**：GIS 的 `campusId` 是大樓編號前綴（A104 → A），
   與停車系統的 `CAMPUS_CODES`（A=光復、B=成功…）不是同一套，不可互相套用。
+- **路況事件的欄位命名尚未對過真實回應**：目前還沒有 `TDX_CLIENT_ID`/
+  `TDX_CLIENT_SECRET`，`parse_road_events`（`tools/road_events.py`）是照 TDX
+  其他資料集的慣例猜的，`fixtures/ncku_traffic/Tainan.json` 也是手寫示範資料、
+  不是真實錄製。拿到金鑰後跑 `scripts/smoke_tdx_road_events.py`；如果丟出
+  `SchemaError`，訊息會列出真實欄位名稱，照著改就好（該檔開頭與
+  `fixtures/ncku_traffic/README.md` 都有寫）。事件的分類代碼（`type_code`）
+  目前沒有官方對照表，`type_is_code=True` 時不要自己編一個中文分類名稱。
 
 ## 尚未完成
 

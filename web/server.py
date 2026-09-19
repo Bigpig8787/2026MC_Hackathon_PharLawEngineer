@@ -30,6 +30,7 @@ from commute_agent.tools.class_schedule import PROJECT_ROOT, find_classes, load_
 from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
 from commute_agent.skills.parking_plan import plan_parking
+from commute_agent.skills.road_watch import check_route_events
 from commute_agent.skills.trip_plan import estimate_trip
 from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
 
@@ -161,7 +162,7 @@ def state(mode: str = "walking", vehicle: str = "機車",
     if not path.is_file():
         return JSONResponse({**base, "has_schedule": False, "schedule_source": "",
                              "current_class": None, "next_class": None,
-                             "trip": None, "parking": None, "courses": []})
+                             "trip": None, "road_events": None, "parking": None, "courses": []})
 
     try:
         courses = load_courses(path)
@@ -169,16 +170,20 @@ def state(mode: str = "walking", vehicle: str = "機車",
     except (ValueError, OSError) as exc:
         return JSONResponse({**base, "has_schedule": False, "courses": [],
                              "current_class": None, "next_class": None,
-                             "trip": None, "parking": None, "schedule_source": "",
+                             "trip": None, "road_events": None, "parking": None, "schedule_source": "",
                              "error": f"課表檔案讀取失敗：{exc}"}, status_code=200)
 
     current, upcoming = find_classes(courses, moment)
     next_class = _with_route(upcoming, start, mode)
 
     trip = None
+    road_events = None
     if next_class:
         destination = next_class["building_name"] or next_class["location"]
         trip = estimate_trip(start, destination, mode) if start else None
+        # 起點與目的地都查得到座標才有意義；查不到座標的那端 check_route_events
+        # 自己會標成 resolved=False，這裡只是省掉明知道會兩端都落空的呼叫
+        road_events = check_route_events(start, destination) if start else None
 
     return JSONResponse({
         **base,
@@ -187,6 +192,7 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "current_class": _with_route(current, start, mode),
         "next_class": next_class,
         "trip": trip,
+        "road_events": road_events,
         # 只有騎車開車才需要停車位，步行與大眾運輸不查，省掉七次連線
         "parking": _parking_for(next_class, vehicle) if mode == "driving" else None,
         "courses": courses,

@@ -17,6 +17,8 @@ FEATURE_CREDENTIALS: dict[str, tuple[str, ...]] = {
     "ncku": (),  # 成大 GIS 與停車系統為公開端點，不需金鑰
     "weather": ("CWA_API_KEY",),
     "transit": ("TDX_CLIENT_ID", "TDX_CLIENT_SECRET"),
+    # 路況事件也是 TDX 平台的 API，共用同一組 client_id/secret
+    "traffic": ("TDX_CLIENT_ID", "TDX_CLIENT_SECRET"),
     "maps": ("GOOGLE_MAPS_API_KEY",),
 }
 

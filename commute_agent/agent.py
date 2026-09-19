@@ -12,6 +12,7 @@ from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.ncku_parking import get_parking_availability
 from commute_agent.tools.route_link import build_route_link
 from commute_agent.skills.parking_plan import plan_parking
+from commute_agent.skills.road_watch import check_route_events
 from commute_agent.skills.trip_plan import estimate_trip
 
 _settings = load_settings()
@@ -55,11 +56,18 @@ root_agent = LlmAgent(
         "can_estimate 為 False 時代表起點在校外、GIS 查不到座標，"
         "要直接說無法估算時間，不可以自己編一個數字。"
         "minutes 是估算值，轉述時要說「大約」。\n"
+        "7. check_route_events：查起點與目的地附近現在有沒有車禍、施工或封閉。"
+        "使用者問「路上順嗎」、「會不會塞」、「有沒有事故」，或你已經給出"
+        "estimate_trip 的路線之後，都可以主動用這支補問一次。"
+        "起點若查不到座標（例如校外住址），該端 resolved 會是 False，"
+        "只回報得到座標那端的結果，如實告知，不要假裝兩端都查了。"
+        "events 裡 type_is_code 為 True 代表只有數字分類代碼、沒有文字說明，"
+        "轉述時只能講有沒有事件、多遠、哪條路，不可以自己把代碼編成一個分類名稱。\n"
         + _origin_rule +
         "任何工具 status 為 error 時，如實告知使用者查詢失敗，不要編造答案。"
         "校區資訊只能來自工具回傳值，你自己不知道哪棟大樓在哪個校區，不可以猜。"
         "用繁體中文回答。"
     ),
     tools=[lookup_room, get_parking_availability, build_route_link,
-           get_next_class, plan_parking, estimate_trip],
+           get_next_class, plan_parking, estimate_trip, check_route_events],
 )

@@ -1,0 +1,34 @@
+[
+  {
+    "EventID": "TN-DEMO-0001",
+    "SubEventType": 1,
+    "Description": "小東路口交通事故，占用外側車道",
+    "RoadName": "小東路",
+    "ReportStartTime": "2026-09-19T07:40:00+08:00",
+    "Position": {
+      "PositionLon": 120.2231,
+      "PositionLat": 22.9985
+    }
+  },
+  {
+    "EventID": "TN-DEMO-0002",
+    "SubEventType": 44,
+    "Description": "光復校區周邊道路施工，夜間封閉外側車道",
+    "RoadName": "大學路",
+    "ReportStartTime": "2026-09-19T06:00:00+08:00",
+    "Position": {
+      "PositionLon": 120.2175,
+      "PositionLat": 22.9968
+    }
+  },
+  {
+    "EventID": "TN-DEMO-0003",
+    "SubEventType": 9,
+    "RoadName": "中華東路",
+    "ReportStartTime": "2026-09-19T08:05:00+08:00",
+    "Position": {
+      "PositionLon": 120.2385,
+      "PositionLat": 23.0012
+    }
+  }
+]

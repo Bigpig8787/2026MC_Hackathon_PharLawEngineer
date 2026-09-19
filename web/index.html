@@ -122,6 +122,15 @@
   .skipped { font-size: 0.8125rem; color: var(--muted); margin-top: 12px; }
   .spinner { color: var(--muted); font-size: 0.875rem; }
 
+  /* 路況事件 */
+  .event-side + .event-side { margin-top: 16px; }
+  .event { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px;
+           padding: 8px 0; border-top: 1px solid var(--border); font-size: 0.9375rem; }
+  .event:first-of-type { border-top: 0; }
+  .event .dist { font-weight: 650; color: var(--now); white-space: nowrap; }
+  .event .meta { color: var(--muted); font-size: 0.8125rem; }
+  .event-clear { color: var(--accent); font-size: 0.9375rem; }
+
   /* 出發地 */
   .origin { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
   .origin label { font-size: 0.8125rem; color: var(--muted); }
@@ -238,6 +247,7 @@
 
   <section class="card" id="hero"><p class="sub">查詢中…</p></section>
   <section class="card" id="parking" hidden></section>
+  <section class="card" id="roadEvents" hidden></section>
 
   <section class="card" id="gridCard">
     <p class="label">本週課表</p>
@@ -415,10 +425,45 @@ function renderParking(data) {
   box.innerHTML = html;
 }
 
+function renderEventSide(label, side) {
+  if (!side.resolved) {
+    return `<p class="label">${esc(label)}</p><p class="note">${esc(side.note)}</p>`;
+  }
+  if (side.note) {
+    return `<p class="label">${esc(label)}・${esc(side.name)}</p><p class="err">${esc(side.note)}</p>`;
+  }
+  if (!side.events.length) {
+    return `<p class="label">${esc(label)}・${esc(side.name)}</p><p class="event-clear">附近沒有回報的路況事件</p>`;
+  }
+  const rows = side.events.map(e => {
+    const what = e.description || (e.type_is_code ? `分類代碼 ${e.type_code}` : "（無說明）");
+    return `<div class="event"><div class="dist">${e.distance_m}m</div>
+      <div><b>${esc(what)}</b><div class="meta">${esc(e.road_name || "（無路名）")}</div></div></div>`;
+  }).join("");
+  return `<p class="label">${esc(label)}・${esc(side.name)}</p>${rows}`;
+}
+
+function renderRoadEvents(data) {
+  const box = document.getElementById("roadEvents");
+  const r = data.road_events;
+  if (!r) { box.hidden = true; return; }
+  box.hidden = false;
+
+  if (r.status === "error") {
+    box.innerHTML = `<p class="label">路況（半徑 ${r.radius_m}m）</p><p class="err">${esc(r.note)}</p>`;
+    return;
+  }
+
+  box.innerHTML =
+    `<p class="label" style="margin-bottom:4px">路況（半徑 ${r.radius_m}m）</p>`
+    + `<div class="event-side">${renderEventSide("出發地周邊", r.origin)}</div>`
+    + `<div class="event-side">${renderEventSide("目的地周邊", r.destination)}</div>`;
+}
+
 const $ = id => document.getElementById(id);
 // 一分鐘拉一次就夠：倒數由前端自己跳，不必靠輪詢，也少打成大的系統
 const POLL_MS = 60000;
-const SECTIONS = ["demoCard", "originForm", "modes", "hero", "parking", "gridCard"];
+const SECTIONS = ["demoCard", "originForm", "modes", "hero", "parking", "roadEvents", "gridCard"];
 
 let mode = "walking", vehicle = "機車", origin = "";
 let simNow = "", leadMin = 30;
@@ -623,6 +668,7 @@ function load() {
       renderModes(data.modes, data.travel_mode, data.vehicle_type);
       renderHero(data);
       renderParking(data);
+      renderRoadEvents(data);
       renderGrid(data);
       bannerSig = "";
       renderBanner();
