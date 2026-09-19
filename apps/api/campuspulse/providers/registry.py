@@ -17,9 +17,19 @@ from campuspulse.providers.transit.fixture import FixtureTransitProvider
 from campuspulse.providers.weather.fixture import FixtureWeatherProvider
 from campuspulse.settings import Settings
 from campuspulse.providers.routing.google_routes import GoogleRoutesProvider
+from campuspulse.providers.bike.tdx_youbike import TdxYouBikeProvider
+from campuspulse.providers.flood.wra import WraFloodProvider
+from campuspulse.providers.transit.tdx_bus import TdxBusProvider
+from campuspulse.providers.weather.cwa import CwaWeatherProvider
 
 # kind -> (live class, settings attribute names that must be non-empty). Task 9/11 fill these.
-LIVE_SIGNAL_CLASSES: dict[str, tuple[type, tuple[str, ...]]] = {}
+LIVE_SIGNAL_CLASSES: dict[str, tuple[type, tuple[str, ...]]] = {
+    "rain": (CwaWeatherProvider, ("cwa_api_key",)),
+    "flood": (WraFloodProvider, ("wra_api_key",)),
+    "bike": (TdxYouBikeProvider, ("tdx_client_id", "tdx_client_secret")),
+    "transit": (TdxBusProvider, ("tdx_client_id", "tdx_client_secret")),
+    # parking: 校方無即時資料前永遠 fixture（owner D 查總務處）
+}
 LIVE_ROUTING_CLASS: tuple[type, tuple[str, ...]] | None = (GoogleRoutesProvider, ("google_maps_api_key",))
 
 
