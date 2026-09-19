@@ -75,6 +75,16 @@
     background: #fff; display: block;
   }
   .plan figcaption { font-size: 0.8125rem; color: var(--muted); margin-top: 6px; }
+  .plan-wrap { position: relative; line-height: 0; }
+  .plan-mark {
+    position: absolute; border: 3px solid var(--now); border-radius: 4px;
+    pointer-events: none;
+  }
+  .plan-mark span {
+    position: absolute; left: 50%; top: -9px; transform: translate(-50%, -100%);
+    background: var(--now); color: #fff; font-size: 0.75rem; line-height: 1.4;
+    padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  }
   .plan-tabs { display: flex; gap: 8px; margin-top: 12px; }
   .plan-tabs button {
     border: 1px solid var(--line); background: #fff; color: var(--muted);
@@ -83,6 +93,20 @@
   .plan-tabs button.on { background: var(--accent-soft); color: var(--accent);
     border-color: transparent; font-weight: 600; }
   .floor-big { font-size: 1.5rem; font-weight: 700; margin: 4px 0 0; }
+
+  /* 停車場走到大樓 */
+  .walk { margin-top: 12px; position: relative; line-height: 0; }
+  .walk img { width: 100%; border-radius: 10px; border: 1px solid var(--line); display: block; }
+  .walk svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .walk .pin {
+    position: absolute; transform: translate(-50%, -50%); font-size: 0.75rem;
+    line-height: 1.4; padding: 2px 8px; border-radius: 999px; color: #fff;
+    white-space: nowrap; font-weight: 600;
+  }
+  .walk .pin.start { background: #1f2937; }
+  .walk .pin.end { background: var(--now); }
+  .steps { margin: 12px 0 0; padding-left: 1.25rem; }
+  .steps li { font-size: 0.875rem; margin-bottom: 4px; }
 
   /* 週課表 */
   .grid-head, .grid-body { display: grid; grid-template-columns: 3.25rem repeat(5, 1fr); }
@@ -287,6 +311,7 @@
   <section class="card" id="classroom" hidden></section>
   <section class="card" id="modeinfo" hidden></section>
   <section class="card" id="parking" hidden></section>
+  <section class="card" id="walk" hidden></section>
 
   <section class="card" id="gridCard">
     <p class="label">本週課表</p>
@@ -377,12 +402,37 @@ function loadAdvice() {
 
 // 同一堂課不重複查：切換交通方式只換導航連結，教室位置不會變
 let classroomSig = "", classroomData = null, classroomView = "plan";
+// 使用者自己翻到別層時放這裡；null 代表看的還是這堂課那一層
+let planOverride = null;
+
+// 大樓是怎麼查出來的。教室代碼最準，用文字換出來的要讓使用者知道
+const BUILDING_SOURCE_NOTE = {
+  gis_room: "大樓由教室代碼查成大地理資訊系統得出。",
+  gis_text: "課表上的地點文字直接在成大 GIS 查到這棟。",
+  gis_prefix: "課表沒有教室代碼，剪掉教室描述後在成大 GIS 查到這棟。",
+  gemini_building: "課表沒有教室代碼，Gemini 讀出大樓名後由成大 GIS 驗證座標。",
+  gemini_room: "課表沒有教室代碼，Gemini 讀出教室名後由成大 GIS 驗證座標。",
+  google: "成大 GIS 查不到，座標來自 Google，可能對到隔壁棟。",
+};
 
 const FLOOR_SOURCE_NOTE = {
   gis: "樓層取自成大地理資訊系統。",
   floor_plan: "成大 GIS 查不到這個代碼，樓層依平面圖上的標示。",
   room_code: "成大 GIS 查不到，樓層由教室代碼推算。",
 };
+
+function renderPlanImage(image, highlight) {
+  if (!image || !image.url) {
+    return `<p class="note">${esc((image && image.error_message) || "沒有這一層的平面圖。")}</p>`;
+  }
+  const mark = highlight
+    ? `<div class="plan-mark" style="left:${highlight.left}%;top:${highlight.top}%;
+         width:${highlight.width}%;height:${highlight.height}%"><span>這裡</span></div>`
+    : "";
+  return `<figure class="plan"><div class="plan-wrap">
+      <img src="${esc(image.url)}" alt="${esc(image.caption || "平面圖")}">${mark}</div>
+      <figcaption>${esc(image.caption || "")}</figcaption></figure>`;
+}
 
 function renderClassroom() {
   const box = $("classroom");
@@ -397,17 +447,18 @@ function renderClassroom() {
   }
 
   const plan = r.floor_plan || {};
-  const image = classroomView === "campus" ? r.campus_map : plan.plan;
-  const tabs = r.campus_map && plan.plan
-    ? `<div class="plan-tabs">
-         <button data-view="plan" class="${classroomView === "plan" ? "on" : ""}">樓層平面圖</button>
-         <button data-view="campus" class="${classroomView === "campus" ? "on" : ""}">校區全圖</button>
-       </div>` : "";
+  const shown = planOverride || plan;
+  const figure = classroomView === "campus"
+    ? renderPlanImage(r.campus_map, null)
+    : renderPlanImage(shown, shown === plan ? plan.highlight : null);
 
-  const figure = image && image.available
-    ? `<figure class="plan"><img src="${esc(image.url)}" alt="${esc(image.caption)}">
-         <figcaption>${esc(image.caption)}</figcaption></figure>`
-    : `<p class="note">${esc(plan.error_message || "沒有這一層的平面圖。")}</p>`;
+  // 這棟每一層都有圖層時，讓使用者自己翻樓層——找不到教室時常常是記錯樓
+  const floorTabs = (plan.floors || []).map(f =>
+    `<button data-floor="${esc(f)}" class="${f === (shown.floor || plan.floor) &&
+      classroomView === "plan" ? "on" : ""}">${esc(f)}</button>`).join("");
+  const tabs = `<div class="plan-tabs">${floorTabs}
+    ${r.campus_map ? `<button data-view="campus"
+      class="${classroomView === "campus" ? "on" : ""}">校區全圖</button>` : ""}</div>`;
 
   const loc = r.location || {};
   const coords = loc.lat !== null && loc.lat !== undefined
@@ -425,6 +476,8 @@ function renderClassroom() {
     ${tabs}
     ${figure}
     ${r.floor_conflict ? `<p class="note warn">⚠ ${esc(r.floor_conflict)}</p>` : ""}
+    <p class="note ${r.building_source === "google" ? "warn" : ""}"
+      >${esc(BUILDING_SOURCE_NOTE[r.building_source] || "")}</p>
     <p class="note">${esc(FLOOR_SOURCE_NOTE[r.floor_source] || "")}
       ${esc(r.floor_rule || "")}</p>`;
 }
@@ -437,6 +490,7 @@ function loadClassroom(data) {
   if (sig === classroomSig) { renderClassroom(); return; }
   classroomSig = sig;
   classroomData = null;
+  planOverride = null;
   $("classroom").hidden = false;
   $("classroom").innerHTML = `<p class="label">教室位置</p>
     <p class="spinner">正在查成大地理資訊系統…</p>`;
@@ -669,6 +723,73 @@ function renderModes(modes, active, vehicle) {
     </span>` : "");
 }
 
+/* ---------- 停好車之後怎麼走到大樓 ---------- */
+
+let walkSig = "", walkData = null;
+
+function renderWalk() {
+  const box = document.getElementById("walk");
+  if (!box) return;
+  const w = walkData;
+  if (!w) { box.hidden = true; return; }
+  box.hidden = false;
+
+  if (w.status !== "ok") {
+    box.innerHTML = `<p class="label">停好車之後</p>
+      <p class="err">${esc(w.error_message || "畫不出這段路")}</p>`;
+    return;
+  }
+
+  const line = w.path.map(pt => `${pt.left},${pt.top}`).join(" ");
+  const howLong = w.is_real_path
+    ? `步行 ${w.minutes} 分・${w.distance_m} 公尺` : "距離未知";
+  const steps = (w.directions.steps || []).map(t => `<li>${esc(t)}</li>`).join("");
+
+  box.innerHTML = `<p class="label">停好車之後怎麼走</p>
+    <p class="course-name">${esc(w.from)} → ${esc(w.to)}</p>
+    <p class="note">${esc(howLong)}</p>
+    <div class="walk">
+      <img src="${esc(w.map.url)}" alt="校區圖">
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none">
+        <polyline points="${esc(line)}" fill="none" stroke="#031cff"
+          stroke-width="1.1" stroke-linejoin="round" stroke-linecap="round"
+          vector-effect="non-scaling-stroke" style="stroke-width:6"></polyline>
+        <polyline points="${esc(line)}" fill="none" stroke="#fff942"
+          stroke-dasharray="6 5" stroke-linecap="round"
+          vector-effect="non-scaling-stroke" style="stroke-width:3"></polyline>
+      </svg>
+      <span class="pin start" style="left:${w.from_point.left}%;top:${w.from_point.top}%">停車場</span>
+      <span class="pin end" style="left:${w.to_point.left}%;top:${w.to_point.top}%">教室</span>
+    </div>
+    ${w.note ? `<p class="note warn">⚠ ${esc(w.note)}</p>` : ""}
+    ${w.directions.summary ? `<p class="advice-why">${esc(w.directions.summary)}</p>` : ""}
+    ${steps ? `<ol class="steps">${steps}</ol>` : ""}
+    ${w.directions.note ? `<p class="note">${esc(w.directions.note)}</p>` : ""}`;
+}
+
+function loadWalk(data) {
+  const rec = data.parking && data.parking.recommended;
+  const next = data.next_class;
+  // 只有要停車才需要這段；走路或搭公車不會經過停車場
+  if (!rec || !next) { walkSig = ""; walkData = null; renderWalk(); return; }
+
+  const sig = [rec.name, next.location].join("|");
+  if (sig === walkSig) { renderWalk(); return; }
+  walkSig = sig;
+  walkData = null;
+  const box = document.getElementById("walk");
+  box.hidden = false;
+  box.innerHTML = `<p class="label">停好車之後怎麼走</p>
+    <p class="spinner">正在畫從停車場到教室的路線…</p>`;
+
+  const params = new URLSearchParams({ lot: rec.name, q: next.location,
+                                       room: next.room_query || "" });
+  fetch(`/api/campuswalk?${params}`)
+    .then(r => r.json())
+    .then(r => { walkData = r; renderWalk(); })
+    .catch(e => { walkData = { status: "error", error_message: e.message }; renderWalk(); });
+}
+
 function renderParking(data) {
   const box = document.getElementById("parking");
   const plan = data.parking;
@@ -717,7 +838,7 @@ function renderParking(data) {
 const $ = id => document.getElementById(id);
 // 一分鐘拉一次就夠：倒數由前端自己跳，不必靠輪詢，也少打成大的系統
 const POLL_MS = 60000;
-const SECTIONS = ["demoCard", "originForm", "modes", "hero", "classroom", "parking", "gridCard"];
+const SECTIONS = ["demoCard", "originForm", "modes", "hero", "classroom", "parking", "walk", "gridCard"];
 
 let bikePick = { from: null, to: null }, bikeJourney = null;
 let mode = "walking", vehicle = "機車", origin = "";
@@ -939,6 +1060,7 @@ function load() {
       autoLoadAdvice(data);
       renderModeInfo(data);
       renderParking(data);
+      loadWalk(data);
       renderGrid(data);
       bannerSig = "";
       renderBanner();
@@ -970,10 +1092,22 @@ $("advice").addEventListener("click", e => {
 });
 
 $("classroom").addEventListener("click", e => {
-  const btn = e.target.closest("[data-view]");
+  const btn = e.target.closest("[data-view], [data-floor]");
   if (!btn) return;
-  classroomView = btn.dataset.view;
-  renderClassroom();
+  if (btn.dataset.view) { classroomView = btn.dataset.view; renderClassroom(); return; }
+
+  classroomView = "plan";
+  const floor = btn.dataset.floor, plan = classroomData.floor_plan || {};
+  if (floor === plan.floor) { planOverride = null; renderClassroom(); return; }
+  fetch(`/api/floorplan?build_id=${encodeURIComponent(classroomData.building_id)}` +
+        `&floor=${encodeURIComponent(floor)}`)
+    .then(r => r.json())
+    .then(r => {
+      // 別層沒有「這裡」的框：目標教室不在那一層，畫了就是騙人
+      planOverride = { ...r, floors: plan.floors,
+                       caption: `${classroomData.building_name} ${floor} 平面圖` };
+      renderClassroom();
+    });
 });
 
 $("modeinfo").addEventListener("click", e => {

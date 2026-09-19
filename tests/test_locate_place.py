@@ -32,6 +32,11 @@ ROOMS = {
 PLACES = {
     "社會科學院": {"status": "ok", "name": "E901 社會科學院大樓", "build_id": "E901",
                    "lat": 23.0019, "lon": 120.2166},
+    # 「資訊大樓格致廳小講堂」剪掉尾巴就查得到，而它跟資訊系館是不同建築
+    "資訊大樓": {"status": "ok", "name": "B003 資訊大樓", "build_id": "B006",
+                 "lat": 22.9978, "lon": 120.2186},
+    "資訊系館": {"status": "ok", "name": "B502 資訊工程系大樓", "build_id": "B102",
+                 "lat": 22.9972, "lon": 120.2214},
 }
 
 
@@ -96,9 +101,31 @@ def test_fuzzy_rooms_agreeing_on_one_building_are_accepted(world):
     # 格致廳大、小講堂都在 B204，兩筆指向同一個答案
     world["keywords"] = {"building_keywords": [], "room_keywords": ["格致廳"],
                          "note": ""}
-    found = locate_course_place("資訊大樓格致廳小講堂")
+    # 不帶大樓名，前綴那一層沒辦法，才會走到模型這條路
+    found = locate_course_place("格致廳小講堂")
     assert found["source"] == "gemini_room"
     assert found["build_id"] == "B204"
+
+
+def test_a_trimmed_prefix_finds_the_building_without_the_model(world):
+    # 「資訊大樓格致廳小講堂」整串查不到，剪到「資訊大樓」就中了
+    found = locate_course_place("資訊大樓格致廳小講堂")
+    assert found["source"] == "gis_prefix"
+    assert found["build_id"] == "B006"
+    assert world["asked"] == []          # 前綴有中就不該花模型額度
+
+
+def test_the_prefix_step_never_overrides_a_room_code(world):
+    # 「資訊系館」當關鍵字會比到 B502，但 4264 其實在 B501，
+    # 有代碼時就該以代碼為準 —— 兩棟資工大樓差了幾百公尺
+    found = locate_course_place("資訊系館4264", "4264")
+    assert found["source"] == "gis_room_code"
+    assert found["build_id"] == "B029"
+
+
+def test_a_prefix_that_is_too_short_is_not_tried(world):
+    # 兩三個字的片段會比到不相干的大樓
+    assert locate_course_place("某地")["status"] == "not_found"
 
 
 def test_google_is_the_last_resort_and_is_flagged(world):

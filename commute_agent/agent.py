@@ -14,6 +14,7 @@ from commute_agent.tools.route_link import build_route_link
 from commute_agent.tools.tdx_bus import get_bus_eta
 from commute_agent.tools.weather import get_weather
 from commute_agent.tools.youbike import get_bike_status
+from commute_agent.skills.campus_walk import plan_campus_walk
 from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.compare_plans import compare_plans
 from commute_agent.skills.locate_place import locate_course_place
@@ -91,7 +92,9 @@ root_agent = LlmAgent(
         "目前不可行（例如附近沒有可借的 YouBike），不可以推薦它。\n"
         "建議時要講具體數字與風險，不要只說「比較快」。\n"
         "13. locate_classroom：使用者問「教室在哪」、「在幾樓」、「教室長怎樣」時用這支。\n"
-        "它會回傳大樓、樓層、該層平面圖與一句結論。樓層有三種來源，要照實轉述：\n"
+        "它會回傳大樓、樓層、平面圖與一句結論。平面圖來自成大 GeoServer 的即時圖層，\n"
+        "floor_plan.highlight 是目標教室在圖上的位置，floors 是這棟還有哪幾層可以翻。\n"
+        "source 為 \"picture\" 代表那棟沒有圖層，用的是人工截圖。樓層有三種來源，要照實轉述：\n"
         "floor_source 為 \"gis\" 是成大官方資料；\"floor_plan\" 是依平面圖標示；\n"
         "\"room_code\" 是由教室代碼推算的（大樓代號後那一碼就是樓層，代號兩碼時\n"
         "看第三碼，42、72 這種一碼的看第二碼），是推算值，要講明不是官方資料。\n"
@@ -100,6 +103,11 @@ root_agent = LlmAgent(
         "它會依序用教室代碼、成大 GIS、Gemini 讀出的關鍵字去換座標。\n"
         "is_verified 為 False 代表座標只來自 Google、沒有經過成大 GIS 驗證，\n"
         "轉述時要提醒使用者位置可能對到隔壁棟。\n"
+        "15. plan_campus_walk：使用者騎車或開車上課、停好車之後要走到教室時用這支。\n"
+        "它會把路線畫在校區圖上，並依路線附近真實存在的建物寫出指路文字。\n"
+        "is_real_path 為 False 代表 Google 算不出步行路線，圖上畫的只是起訖直線，\n"
+        "轉述時要講明那不是真的走得通的路；directions.steps 為空代表指路文字沒有產出，\n"
+        "這時只講距離與時間，不可以自己編地標。\n"
         "\n"
         "挑交通方式的原則：在「準時、舒適、環保」之間權衡。\n"
         "準時是硬性條件——會遲到的方案除非別無選擇否則不推薦，不可以為了環保讓使用者遲到。\n"
@@ -117,5 +125,6 @@ root_agent = LlmAgent(
     tools=[lookup_room, get_parking_availability, build_route_link,
            get_next_class, plan_parking, estimate_trip, plan_ride_and_walk,
            plan_departure, get_bike_status, get_weather, get_bus_eta,
-           compare_plans, locate_classroom, locate_course_place],
+           compare_plans, locate_classroom, locate_course_place,
+           plan_campus_walk],
 )

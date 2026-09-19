@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 
 from api import load_settings
+from commute_agent.tools.gemini_error import describe
 from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.ncku_geo import get_building_centroid, resolve_place
 from commute_agent.tools.ncku_room import lookup_room
@@ -110,6 +111,32 @@ def _from_gis_text(text: str) -> dict | None:
             "matched": found.get("matched_query", text), "is_verified": True}
 
 
+# 前綴短於這個長度就不查：兩三個字的片段會比到不相干的大樓
+MIN_PREFIX_LENGTH = 4
+
+
+def _from_gis_prefix(text: str) -> dict | None:
+    """把原文從右邊逐字剪短再問 GIS。
+
+    課表的寫法幾乎都是「大樓名」接「教室描述」，所以大樓名就在最前面：
+    「資訊大樓格致廳小講堂」剪到「資訊大樓」就查得到 B003 資訊大樓。
+    這段不花額度、結果固定，所以排在問模型之前。
+
+    只在教室代碼那一條路走不通時才會走到這裡，這件事很重要：
+    成大有兩棟資工大樓，「資訊系館」這個簡稱在 GIS 會比到 B502，
+    但 4264 其實在 B501。有代碼就該以代碼為準，名稱只是最後的線索。
+    """
+    cleaned = (text or "").strip()
+    for end in range(len(cleaned), MIN_PREFIX_LENGTH - 1, -1):
+        prefix = cleaned[:end].strip()
+        if len(prefix) < MIN_PREFIX_LENGTH:
+            break
+        found = _from_gis_text(prefix)
+        if found:
+            return {**found, "source": "gis_prefix", "matched": prefix}
+    return None
+
+
 def ask_for_keywords(text: str) -> dict:
     """請 Gemini 把課表寫法讀成可搜尋的關鍵字。失敗時回空清單，不丟例外。"""
     settings = load_settings()
@@ -132,8 +159,7 @@ def ask_for_keywords(text: str) -> dict:
         )
         answer = json.loads(response.text or "{}")
     except Exception as exc:  # 額度用盡、逾時、SDK 自訂例外都走這裡
-        return {"building_keywords": [], "room_keywords": [],
-                "note": f"Gemini 無法回應（{type(exc).__name__}）"}
+        return {"building_keywords": [], "room_keywords": [], "note": describe(exc)}
 
     return {"building_keywords": list(answer.get("building_keywords") or [])[:3],
             "room_keywords": list(answer.get("room_keywords") or [])[:3],
@@ -182,7 +208,8 @@ def locate_course_place(location_text: str, room_query: str = "",
         dict，包含：
         - status: "ok" 或 "not_found"
         - source: 答案是怎麼來的 —— "gis_room_code"（教室代碼查 GIS，最準）、
-          "gis_text"（原文查 GIS）、"gemini_room" / "gemini_building"
+          "gis_text"（原文查 GIS）、"gis_prefix"（剪掉教室描述只留大樓名）、
+          "gemini_room" / "gemini_building"
           （Gemini 讀出關鍵字再由 GIS 驗證）或 "google"（Google Geocoding，可能偏）
         - is_verified: 座標是否來自成大 GIS。False 代表只有 Google 的結果，
           介面應提醒使用者位置可能不準
@@ -200,6 +227,7 @@ def locate_course_place(location_text: str, room_query: str = "",
 
     found = (_from_room_code(room_query)
              or _from_gis_text(text)
+             or _from_gis_prefix(text)
              or (_from_gemini(text) if use_gemini else None)
              or _from_google(text))
 

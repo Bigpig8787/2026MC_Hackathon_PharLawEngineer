@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 
 from api import load_settings
 from commute_agent.skills.bike_plan import plan_bike_journey_auto
+from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.trip_plan import estimate_trip, plan_ride_and_walk
 from commute_agent.tools.class_schedule import get_next_class
 from commute_agent.tools.ncku_room import lookup_room
@@ -52,8 +53,17 @@ def travel_for_mode(origin: str, building: str, travel_mode: str,
     """
     if travel_mode == "driving":
         journey = plan_ride_and_walk(origin, building, vehicle_type)
+        if journey["status"] != "ok":
+            # 找不到停車場或算不出騎車路線時 ride／walk 是 None，不是空 dict；
+            # journey.get("ride", {}) 的預設值只在鍵不存在時生效，鍵存在但值是
+            # None 照樣會回 None，接著 .get(...) 就丟 AttributeError 把整支炸掉。
+            # 跟 bicycling 分支一樣，查不到就老實說算不出來，不要讓整個比較掛掉。
+            return {"minutes": None, "is_estimate": True,
+                    "note": journey.get("error_message", ""),
+                    "parking": None, "bike": None}
+        ride = journey.get("ride") or {}
         return {"minutes": journey.get("total_minutes"),
-                "is_estimate": bool(journey.get("ride", {}).get("is_estimate", True)),
+                "is_estimate": bool(ride.get("is_estimate", True)),
                 "note": journey.get("note", ""),
                 "parking": journey.get("lot"), "bike": None}
 
@@ -80,14 +90,26 @@ def travel_for_mode(origin: str, building: str, travel_mode: str,
 
 
 def _resolve_building(entry: dict) -> str:
-    """把課表寫的地點換成 GIS 的正式大樓名稱，查不到就用原文。"""
+    """把課表寫的地點換成 GIS 的正式大樓名稱，查不到就用原文。
+
+    先試教室代碼（最準），查不到再交給 locate_course_place 用原文去換
+    ——它會依序試 GIS 原文、剪短前綴、Gemini 讀關鍵字。這一步很重要：
+    像「成大綜合體育館-體育館羽球場」這種沒有教室代碼的課，以前會整串
+    原文往下傳，plan_parking／geocode_place 都認不得這種寫法，
+    整堂課的騎車、單車路線就會算不出來（甚至讓 travel_for_mode 崩潰，
+    見下方的 status 防呆）。改用 locate_course_place 後這裡也一併吃到
+    Gemini 讀懂的大樓名，跟教室位置卡、導航連結用的是同一套解析。
+    """
     query = entry.get("room_query")
-    if not query:
-        return entry["location"]
-    found = lookup_room(query)
-    exact = [c for c in found.get("candidates", []) if c["exact_match"]]
-    chosen = exact[0] if exact else (found.get("candidates") or [None])[0]
-    return chosen["building_name"] if chosen else entry["location"]
+    if query:
+        found = lookup_room(query)
+        exact = [c for c in found.get("candidates", []) if c["exact_match"]]
+        chosen = exact[0] if exact else (found.get("candidates") or [None])[0]
+        if chosen:
+            return chosen["building_name"]
+
+    place = locate_course_place(entry["location"], query or "")
+    return place["name"] if place["status"] == "ok" else entry["location"]
 
 
 def plan_departure(origin: str = "", travel_mode: str = "walking",

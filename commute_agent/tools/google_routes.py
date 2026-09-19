@@ -27,10 +27,42 @@ ROUTES_TRAVEL_MODE = {
 
 # 只要這幾個欄位，FieldMask 越小計費層級越低
 FIELD_MASK = "routes.duration,routes.distanceMeters"
+# 要把路線畫在地圖上時才加 polyline：它會把計費拉到較高的層級
+FIELD_MASK_WITH_PATH = FIELD_MASK + ",routes.polyline.encodedPolyline"
 
 
 class RoutesError(RuntimeError):
     """Routes API 回應無法使用。"""
+
+
+def decode_polyline(encoded: str) -> list[tuple[float, float]]:
+    """解開 Google 的 encoded polyline，回傳 (lat, lon) 清單。純函式。
+
+    格式是 Google 自己的變長編碼：每個數字先乘 1e5 取整、與前一個值取差、
+    左移一位（負數再取補數），然後每 5 bits 一組、除了最後一組都加 0x20，
+    最後每組加 63 變成可列印字元。這裡就是把這串步驟反過來做。
+    """
+    points: list[tuple[float, float]] = []
+    index = lat = lon = 0
+
+    while index < len(encoded):
+        for axis in ("lat", "lon"):
+            shift = result = 0
+            while index < len(encoded):
+                byte = ord(encoded[index]) - 63
+                index += 1
+                result |= (byte & 0x1F) << shift
+                shift += 5
+                if byte < 0x20:
+                    break
+            delta = ~(result >> 1) if result & 1 else result >> 1
+            if axis == "lat":
+                lat += delta
+            else:
+                lon += delta
+        points.append((lat / 1e5, lon / 1e5))
+
+    return points
 
 
 def parse_route(payload: dict) -> dict:
@@ -48,10 +80,12 @@ def parse_route(payload: dict) -> dict:
         raise RoutesError(f"無法解析 duration：{duration!r}")
 
     seconds = float(duration[:-1])
+    encoded = (route.get("polyline") or {}).get("encodedPolyline")
     return {
         "minutes": max(1, round(seconds / 60)),
         "distance_m": route.get("distanceMeters"),
         "seconds": round(seconds),
+        "points": decode_polyline(encoded) if encoded else [],
     }
 
 
@@ -70,20 +104,24 @@ def waypoint(place: str | tuple[float, float]) -> dict:
 
 def compute_route(origin: str | tuple[float, float],
                   destination: str | tuple[float, float],
-                  travel_mode: str = "walking") -> dict:
+                  travel_mode: str = "walking",
+                  with_path: bool = False) -> dict:
     """用 Google Routes API 算實際路線的距離與時間。
 
     Args:
         origin: 起點，(lat, lon) 座標或地址字串。座標較可靠。
         destination: 目的地，同上。
         travel_mode: "walking"、"bicycling"、"driving" 或 "transit"。
+        with_path: 是否連路線的折線座標一起要。要畫在地圖上才需要，
+            會把計費拉到較高的層級，所以預設不要。
 
     Returns:
-        dict，含 status、minutes、distance_m；status 為 "error" 時含 error_message。
+        dict，含 status、minutes、distance_m 與 points（with_path 時才有值，
+        為 (lat, lon) 清單）；status 為 "error" 時含 error_message。
     """
     settings = load_settings()
     result = {"status": "ok", "minutes": None, "distance_m": None,
-              "provider": "google_routes"}
+              "points": [], "provider": "google_routes"}
 
     if travel_mode not in ROUTES_TRAVEL_MODE:
         return {**result, "status": "error",
@@ -107,7 +145,8 @@ def compute_route(origin: str | tuple[float, float],
         resp = requests.post(
             ENDPOINT, json=body, timeout=settings.http_timeout_seconds,
             headers={"X-Goog-Api-Key": settings.google_maps_api_key,
-                     "X-Goog-FieldMask": FIELD_MASK,
+                     "X-Goog-FieldMask": (FIELD_MASK_WITH_PATH if with_path
+                                          else FIELD_MASK),
                      "User-Agent": USER_AGENT})
     except requests.Timeout:
         return {**result, "status": "error", "error_message": "Google Routes API 逾時"}

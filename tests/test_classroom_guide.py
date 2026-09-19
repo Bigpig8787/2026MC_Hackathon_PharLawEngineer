@@ -18,13 +18,35 @@ PLAN = {"status": "ok", "floor": "2F", "floor_source": "given",
                        "caption": "校區全圖", "available": True}}
 
 
+LIVE_IMAGE = {"status": "ok", "url": "https://gis/wms?layer=gis_room:B029_2F",
+              "layer": "gis_room:B029_2F", "floors": ["1F", "2F"],
+              "width": 1200, "height": 700,
+              "bbox": {"minx": 0.0, "miny": 0.0, "maxx": 100.0, "maxy": 50.0}}
+
+LIVE_ROOMS = {"status": "ok", "rooms": [
+    {"room_code": "4264", "room_name": "", "type": "普通教室", "capacity": "60",
+     "using_unit": "資訊工程學系", "area": 66.6,
+     "bounds": {"minx": 10.0, "miny": 10.0, "maxx": 20.0, "maxy": 20.0}}]}
+
+
 @pytest.fixture
 def world(monkeypatch):
     state = {"room": {"status": "ok", "candidates": [dict(CANDIDATE)],
                       "exact_match_count": 1, "source": "http://gis"},
-             "plan": dict(PLAN)}
+             "plan": dict(PLAN),
+             "image": dict(LIVE_IMAGE),
+             "rooms": dict(LIVE_ROOMS)}
+
+    state["place"] = {"status": "not_found", "source": None, "name": "",
+                      "build_id": "", "floor": "", "lat": None, "lon": None}
 
     monkeypatch.setattr(cg, "lookup_room", lambda q: state["room"])
+    monkeypatch.setattr(cg, "locate_course_place",
+                        lambda text, room="": state["place"])
+    monkeypatch.setattr(cg, "floor_plan_url",
+                        lambda bid, floor, *a, **k: state["image"])
+    monkeypatch.setattr(cg, "get_rooms_on_floor",
+                        lambda bid, floor: state["rooms"])
     monkeypatch.setattr(cg, "get_floor_plan",
                         lambda code, name="", floor="": state["plan"])
     monkeypatch.setattr(cg, "get_building_centroid",
@@ -47,8 +69,32 @@ def test_coordinates_come_from_the_building_id(world):
     assert locate_classroom("4264")["location"]["lat"] == 22.9972
 
 
-def test_floor_plan_is_returned(world):
-    assert locate_classroom("4264")["floor_plan"]["plan"]["url"] == "/picture/42.png"
+def test_the_live_geoserver_layer_is_preferred(world):
+    plan = locate_classroom("4264")["floor_plan"]
+    assert plan["source"] == "geoserver"
+    assert plan["url"] == LIVE_IMAGE["url"]
+    assert plan["floors"] == ["1F", "2F"]
+
+
+def test_the_target_room_is_marked_on_the_plan(world):
+    # 房間在 bbox 的 x 10–20%／y 60–80%（y 要翻轉，地理往北是圖片往上）
+    mark = locate_classroom("4264")["floor_plan"]["highlight"]
+    assert (mark["left"], mark["width"]) == (10.0, 10.0)
+    assert (mark["top"], mark["height"]) == (60.0, 20.0)
+
+
+def test_no_mark_when_the_room_is_not_on_that_layer(world):
+    state_rooms = {"status": "ok", "rooms": [{"room_code": "9999", "bounds": None}]}
+    world["rooms"] = state_rooms
+    assert locate_classroom("4264")["floor_plan"]["highlight"] is None
+
+
+def test_screenshot_is_the_fallback_when_there_is_no_layer(world):
+    # GeoServer 沒有這一層時才用 picture/ 的人工截圖
+    world["image"] = {"status": "not_found", "floors": []}
+    plan = locate_classroom("4264")["floor_plan"]
+    assert plan["source"] == "picture"
+    assert plan["url"] == "/picture/42.png"
 
 
 def test_gis_wins_but_the_disagreement_is_reported(world):
@@ -83,6 +129,41 @@ def test_the_floor_plan_answers_when_the_gis_cannot(world):
     assert found["building_name"] == "資訊大樓"
     assert found["floor_source"] == "floor_plan"
     assert "地下 1 樓" in found["conclusion"]
+
+
+def test_a_room_code_beats_the_text_resolver(world):
+    # 有代碼就不該再去讀文字，代碼是確定的、名稱不是
+    world["place"] = {"status": "ok", "source": "gemini_building",
+                      "name": "別棟大樓", "build_id": "X999", "floor": "",
+                      "lat": 1.0, "lon": 2.0}
+    found = locate_classroom("4264")
+    assert found["building_id"] == "B029"
+    assert found["building_source"] == "gis_room"
+
+
+def test_the_text_resolver_answers_when_there_is_no_room_code(world):
+    # 「社科院大樓 階梯教室－心理」沒有代碼，roominfo 永遠查不到，
+    # 以前畫面上只剩「查不到大樓」，現在要給出實際位置
+    world["room"] = {"status": "not_found", "candidates": [],
+                     "exact_match_count": 0, "source": "http://gis"}
+    world["plan"] = {**PLAN, "status": "not_found", "plan": None,
+                     "floor_by_room_code": None, "error_message": "沒有平面圖"}
+    world["place"] = {"status": "ok", "source": "gemini_building",
+                      "name": "E901 社會科學院大樓", "build_id": "E047",
+                      "floor": "", "lat": 23.0019, "lon": 120.2166}
+    found = locate_classroom("社科院大樓 階梯教室－心理")
+    assert found["building_name"] == "E901 社會科學院大樓"
+    assert found["building_source"] == "gemini_building"
+    assert found["location"]["lat"] == 23.0019
+
+
+def test_a_plan_from_another_building_is_not_shown(world):
+    # 用文字換出來的大樓配別處來的樓層，可能拼出不含那間教室的圖
+    world["room"] = {"status": "not_found", "candidates": [],
+                     "exact_match_count": 0, "source": "http://gis"}
+    world["place"] = {"status": "ok", "source": "gis_prefix", "name": "B003 資訊大樓",
+                      "build_id": "B006", "floor": "", "lat": 22.99, "lon": 120.21}
+    assert locate_classroom("資訊大樓格致廳小講堂")["floor_plan"]["source"] == "picture"
 
 
 def test_lookup_error_is_propagated(world):
