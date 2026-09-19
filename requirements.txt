@@ -1,0 +1,8 @@
+# SkillToolset 仍屬實驗性功能，鎖定版本避免 API 變動
+google-adk==2.9.2
+requests>=2.31
+python-dotenv>=1.0
+beautifulsoup4>=4.12
+# Windows 沒有內建時區資料庫，zoneinfo 需要它
+tzdata>=2024.1
+pytest>=8.0
