@@ -25,7 +25,8 @@ TRAVEL_MODE_LABELS = {
 
 
 def build_route_link(destination: str, origin: str | None = None,
-                     travel_mode: str = "walking") -> str:
+                     travel_mode: str = "walking",
+                     waypoints: list[str] | None = None) -> str:
     """組出前往成大某棟大樓或地點的 Google Maps 導航連結。
 
     適用時機：已經知道目的地名稱（大樓或停車場）後，要給使用者一個
@@ -37,6 +38,8 @@ def build_route_link(destination: str, origin: str | None = None,
         origin: 起點名稱或地址。留空時 Google Maps 會使用使用者當下的定位。
         travel_mode: "walking"（步行）、"bicycling"（自行車）、
             "driving"（機車或開車）或 "transit"（大眾運輸）。
+        waypoints: 中途必經的地點，例如 YouBike 的借車站與還車站。
+            Google Maps 會照順序串成一條路線。
 
     Returns:
         Google Maps 導航連結字串。
@@ -56,5 +59,10 @@ def build_route_link(destination: str, origin: str | None = None,
     origin = (origin or "").strip()
     if origin:
         params["origin"] = origin
+
+    stops = [w.strip() for w in (waypoints or []) if w and w.strip()]
+    if stops:
+        # Google Maps 的 waypoints 以 | 分隔，urlencode 會自動轉成 %7C
+        params["waypoints"] = "|".join(stops)
 
     return f"https://www.google.com/maps/dir/?{urlencode(params)}"

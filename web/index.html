@@ -119,6 +119,12 @@
   .lot .meta { color: var(--muted); font-size: 0.8125rem; }
   .lot .free { font-weight: 650; color: var(--accent); text-align: right; }
   .lot.pick { background: var(--accent-soft); border-radius: 8px; padding: 12px; border-top: 0; }
+  .lot.pickable { width: 100%; font: inherit; color: inherit; text-align: left;
+                  background: none; border-left: 0; border-right: 0; border-bottom: 0;
+                  cursor: pointer; align-items: center; }
+  .lot.pickable:hover { background: var(--accent-soft); }
+  .lot.pickable.picked { background: var(--accent-soft);
+                         outline: 2px solid var(--accent); border-radius: 8px; }
   .skipped { font-size: 0.8125rem; color: var(--muted); margin-top: 12px; }
   .spinner { color: var(--muted); font-size: 0.875rem; }
 
@@ -304,11 +310,56 @@ function renderTrip(data) {
   ${d.weather_advice ? `<p class="note warn">${esc(d.weather_advice)}</p>` : ""}`;
 }
 
-function stationRows(list, key, unit) {
+function stationRows(list, key, unit, role) {
   if (!list.length) return '<p class="note">附近沒有符合條件的站點。</p>';
-  return list.map(s => `<div class="lot"><div><b>${esc(s.name)}</b>
+  const picked = role === "from" ? bikePick.from : bikePick.to;
+  return list.map(s => `<button type="button" class="lot pickable${
+      s.name === picked ? " picked" : ""}" data-role="${esc(role)}"
+      data-station="${esc(s.name)}"><div><b>${esc(s.name)}</b>
     <div class="meta">${s.distance_m} 公尺・走 ${s.walk_minutes} 分</div></div>
-    <div class="free">${s[key]} ${unit}</div></div>`).join("");
+    <div class="free">${s[key]} ${unit}</div></button>`).join("");
+}
+
+function renderBikeJourney() {
+  const box = $("bikejourney");
+  if (!box) return;
+  const j = bikeJourney;
+  if (!j) {
+    const need = !bikePick.from ? "借車站" : (!bikePick.to ? "還車站" : "");
+    box.innerHTML = need
+      ? `<p class="note">點選上方的${need}，即可估算整趟時間。</p>`
+      : '<p class="spinner">計算中…</p>';
+    return;
+  }
+  if (j.status !== "ok") {
+    box.innerHTML = `<p class="err">${esc(j.error || j.error_message)}</p>`;
+    return;
+  }
+  const w1 = j.walk_to_station, r = j.ride, w2 = j.walk_to_destination;
+  box.innerHTML = `<div class="trip">
+      <b>${j.total_minutes === null ? "無法計算總時間" : "整趟約 " + j.total_minutes + " 分鐘"}</b>
+      <span>走到 ${esc(j.from_station.name)} ${w1.minutes} 分（${w1.distance_m} 公尺）</span>
+      <span>＋ 騎到 ${esc(j.to_station.name)} ${r.minutes === null ? "—" : r.minutes + " 分"}
+        ${r.distance_m ? "（" + r.distance_m + " 公尺）" : ""}
+        ${r.is_estimate ? "（估算）" : "（Google 實際路線）"}</span>
+      <span>＋ 走到 ${esc(j.destination)} ${w2.minutes} 分（${w2.distance_m} 公尺）</span>
+    </div>
+    ${r.unavailable_reason ? `<p class="note err">${esc(r.unavailable_reason)}</p>` : ""}
+    <p><a class="btn" href="${esc(j.map_link)}" target="_blank" rel="noopener">在 Google 地圖查看整條路線</a></p>
+    <p class="note">${esc(j.note)}</p>`;
+}
+
+function loadBikeJourney() {
+  if (!bikePick.from || !bikePick.to) { bikeJourney = null; renderBikeJourney(); return; }
+  bikeJourney = null;
+  renderBikeJourney();
+  const params = new URLSearchParams({ from_station: bikePick.from, to_station: bikePick.to });
+  if (origin) params.set("origin", origin);
+  fetch(`/api/youbike/route?${params}`)
+    .then(r => r.json())
+    .then(data => { bikeJourney = data.status ? data : { status: "error", ...data };
+                    renderBikeJourney(); })
+    .catch(e => { bikeJourney = { status: "error", error: e.message }; renderBikeJourney(); });
 }
 
 function renderModeInfo(data) {
@@ -319,10 +370,11 @@ function renderModeInfo(data) {
     const b = data.bikes.borrow, r = data.bikes["return"];
     parts.push(`<p class="label">YouBike・出發地借車</p>`);
     parts.push(b.status === "error" ? `<p class="err">${esc(b.error_message)}</p>`
-               : stationRows(b.stations || [], "bikes", "可借"));
+               : stationRows(b.stations || [], "bikes", "可借", "from"));
     parts.push(`<p class="label" style="margin-top:20px">YouBike・目的地還車</p>`);
     parts.push(r.status === "error" ? `<p class="err">${esc(r.error_message)}</p>`
-               : stationRows(r.stations || [], "docks", "空位"));
+               : stationRows(r.stations || [], "docks", "空位", "to"));
+    parts.push('<div id="bikejourney" style="margin-top:20px"></div>');
   }
 
   if (data.bus) {
@@ -341,6 +393,7 @@ function renderModeInfo(data) {
 
   box.hidden = parts.length === 0;
   box.innerHTML = parts.join("");
+  if (data.bikes) renderBikeJourney();
 }
 
 function renderHero(data) {
@@ -486,6 +539,7 @@ const $ = id => document.getElementById(id);
 const POLL_MS = 60000;
 const SECTIONS = ["demoCard", "originForm", "modes", "hero", "parking", "gridCard"];
 
+let bikePick = { from: null, to: null }, bikeJourney = null;
 let mode = "walking", vehicle = "機車", origin = "";
 let simNow = "", leadMin = 30;
 let lastData = null, notice = null, pollTimer = null, bannerSig = "", notifiedKey = "";
@@ -730,7 +784,7 @@ $("resetOrigin").addEventListener("click", () => {
 $("modes").addEventListener("click", e => {
   const btn = e.target.closest("button");
   if (!btn) return;
-  if (btn.dataset.mode) mode = btn.dataset.mode;
+  if (btn.dataset.mode) { mode = btn.dataset.mode; bikePick = { from: null, to: null }; bikeJourney = null; }
   else if (btn.dataset.veh) vehicle = btn.dataset.veh;
   else return;
   load();

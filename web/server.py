@@ -29,6 +29,7 @@ from api import load_settings
 from commute_agent.tools.class_schedule import PROJECT_ROOT, find_classes, load_courses
 from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
+from commute_agent.skills.bike_plan import plan_bike_journey
 from commute_agent.skills.departure_plan import plan_departure
 from commute_agent.skills.parking_plan import plan_parking
 from commute_agent.tools.tdx_bus import get_bus_eta
@@ -212,6 +213,30 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "bus": get_bus_eta(start) if (mode == "transit" and start) else None,
         "courses": courses,
     })
+
+
+@app.get("/api/youbike/route")
+def youbike_route(from_station: str, to_station: str,
+                  origin: str | None = None) -> JSONResponse:
+    """使用者在畫面上選好借還車站後，算整趟「走＋騎＋走」的時間。"""
+    settings = load_settings()
+    start = (origin or "").strip() or settings.default_origin
+    if not start:
+        return JSONResponse({"error": "沒有出發地"}, status_code=400)
+
+    path = user_schedule_path()
+    if not path.is_file():
+        return JSONResponse({"error": "還沒有課表，無法得知目的地"}, status_code=400)
+
+    moment, _, _ = resolve_now(None, settings.timezone)
+    _, upcoming = find_classes(load_courses(path), moment)
+    if upcoming is None:
+        return JSONResponse({"error": "課表裡找不到接下來的課"}, status_code=400)
+
+    target = _resolve_building(upcoming)
+    plan = plan_bike_journey(start, target["building_name"] or target["location"],
+                             from_station, to_station)
+    return JSONResponse(plan, status_code=200 if plan["status"] == "ok" else 400)
 
 
 @app.post("/api/schedule/import")

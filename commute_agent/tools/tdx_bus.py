@@ -17,7 +17,8 @@ from zoneinfo import ZoneInfo
 import requests
 
 from api import load_settings
-from commute_agent.tools.ncku_geo import haversine_meters, resolve_place
+from commute_agent.tools.geocode import geocode_place
+from commute_agent.tools.ncku_geo import haversine_meters
 
 TOKEN_URL = ("https://tdx.transportdata.tw/auth/realms/TDXConnect"
              "/protocol/openid-connect/token")
@@ -163,7 +164,8 @@ def get_bus_eta(place: str, radius_m: int = DEFAULT_RADIUS_M) -> dict:
         return {**result, "status": "error",
                 "error_message": "未設定 TDX_CLIENT_ID／TDX_CLIENT_SECRET"}
 
-    found = resolve_place(place)
+    # 同 YouBike：校外地址要靠 Google 解析才找得到附近站牌
+    found = geocode_place(place)
     if found["status"] != "ok":
         return {**result, "status": "error",
                 "error_message": f"查不到「{place}」的座標，無法找附近公車站"}

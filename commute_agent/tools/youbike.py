@@ -16,7 +16,8 @@ from zoneinfo import ZoneInfo
 import requests
 
 from api import load_settings
-from commute_agent.tools.ncku_geo import haversine_meters, resolve_place
+from commute_agent.tools.geocode import geocode_place
+from commute_agent.tools.ncku_geo import haversine_meters
 
 STATIONS_URL = "https://apis.youbike.com.tw/json/station-yb2.json"
 USER_AGENT = "NCKU-Smart-Commute/0.1 (DevJam TW 2026 hackathon prototype)"
@@ -124,7 +125,8 @@ def get_bike_status(place: str, need: str = "bike") -> dict:
 
     settings = load_settings()
     tz = settings.timezone
-    found = resolve_place(place)
+    # 校外住家地址成大 GIS 查不到，交給 Google 解析，否則借車那欄會整個失效
+    found = geocode_place(place)
     if found["status"] != "ok":
         return {"status": "error", "stations": [], "place_name": place,
                 "error_message": f"查不到「{place}」的座標，無法找附近的 YouBike 站"}

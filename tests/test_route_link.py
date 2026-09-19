@@ -67,3 +67,16 @@ def test_pure_function_no_network_or_settings_needed():
     # Tool 層原則：這支不打任何 API，是純函式
     import commute_agent.tools.route_link as m
     assert not hasattr(m, "requests")
+
+
+def test_waypoints_are_joined_for_google_maps():
+    # YouBike 行程要把借車站與還車站串成一條路線
+    link = build_route_link("B501 資訊工程系館", origin="家", travel_mode="bicycling",
+                            waypoints=["勝利國小(長榮路)", "大學長榮"])
+    assert "waypoints=" in link
+    assert "%7C" in link          # | 的編碼
+
+
+def test_empty_waypoints_are_omitted():
+    link = build_route_link("B501 資訊工程系館", waypoints=["", "  ", None])
+    assert "waypoints" not in link
