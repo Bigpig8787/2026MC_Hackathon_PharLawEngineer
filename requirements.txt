@@ -6,6 +6,8 @@ requests>=2.31
 aiohttp>=3.11
 python-dotenv>=1.0
 beautifulsoup4>=4.12
+# FastAPI 接檔案上傳（課表截圖）需要
+python-multipart>=0.0.9
 # Windows 沒有內建時區資料庫，zoneinfo 需要它
 tzdata>=2024.1
 pytest>=8.0
