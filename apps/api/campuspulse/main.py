@@ -8,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from campuspulse.api import routes_actions, routes_plan, routes_scenario, routes_state
 from campuspulse.core.campus import Campus
 from campuspulse.core.loop import AgentLoop
+from campuspulse.ai.gemini import GeminiClient
+from campuspulse.ai.rationale import make_rationale_fn
 from campuspulse.providers.fixture_store import FixtureStore
 from campuspulse.providers.registry import build_providers
 from campuspulse.scenario.runner import SCENARIO_DIR, Scenario, ScenarioRunner
@@ -21,7 +23,9 @@ def build_runner(settings: Settings, scenario_path: Path = DEFAULT_SCENARIO) -> 
     store = FixtureStore()
     providers = build_providers(settings, store, campus)
     scenario = Scenario.load(scenario_path)
-    loop = AgentLoop(campus, providers, scenario.commitment, scenario.origin, dry_run=settings.dry_run)
+    client = GeminiClient(settings)
+    rationale_fn = make_rationale_fn(client)
+    loop = AgentLoop(campus, providers, scenario.commitment, scenario.origin, rationale_fn=rationale_fn, dry_run=settings.dry_run)
     runner = ScenarioRunner(scenario, loop, store)
     runner.reset()
     return runner
