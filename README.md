@@ -1,5 +1,11 @@
 # 2026MC_Hackathon_PharLawEngineer
 
+## CampusPulse quickstart
+
+- 後端：`apps/api`（FastAPI）。`pip install -r requirements.txt` → `uvicorn campuspulse.main:app --reload --port 8000` → `pytest -q`
+- 前端：`apps/web`（Vite + React）。`npm install` → `npm run dev` → http://localhost:5173
+- 無任何 key 也能跑（fixture 模式）。分工與接手方式見 `docs/team-ownership.md`；key 與資料清單見 `docs/api-and-data.md`。
+
 ## Local setup
 
 Copy `.env.example` to `.env` and fill in only the values needed by your task. Never commit `.env`, `API`, or API keys.
