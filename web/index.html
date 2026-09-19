@@ -437,8 +437,9 @@ function renderEventSide(label, side) {
   }
   const rows = side.events.map(e => {
     const what = e.description || (e.type_is_code ? `分類代碼 ${e.type_code}` : "（無說明）");
+    const tag = e.category ? `<span class="badge">${esc(e.category)}</span> ` : "";
     return `<div class="event"><div class="dist">${e.distance_m}m</div>
-      <div><b>${esc(what)}</b><div class="meta">${esc(e.road_name || "（無路名）")}</div></div></div>`;
+      <div><b>${tag}${esc(what)}</b><div class="meta">${esc(e.road_name || "（無地點資訊）")}</div></div></div>`;
   }).join("");
   return `<p class="label">${esc(label)}・${esc(side.name)}</p>${rows}`;
 }

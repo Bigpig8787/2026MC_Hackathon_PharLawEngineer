@@ -21,6 +21,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["PROVIDER_MODE"] = "live"
+# Windows 主控台預設可能不是 UTF-8（例如 cp950），輸出重導向到檔案或非
+# UTF-8 終端機時，中文會被轉成亂碼甚至寫出無效位元組；強制輸出用 UTF-8。
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 import requests  # noqa: E402
 
@@ -68,7 +72,8 @@ def main() -> None:
     for e in result["events"]:
         label = e["description"] or (f"代碼 {e['type_code']}（無文字說明，先別轉譯成分類名稱）"
                                       if e["type_is_code"] else "（無說明文字）")
-        print(f"   {e['distance_m']}m｜{e['road_name'] or '（無路名）'}｜{label}")
+        tag = f"[{e['category']}] " if e["category"] else ""
+        print(f"   {e['distance_m']}m｜{e['road_name'] or '（無地點資訊）'}｜{tag}{label}")
 
 
 if __name__ == "__main__":

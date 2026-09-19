@@ -1,4 +1,4 @@
-"""Tool 層：查 TDX 路況事件（車禍、施工、封閉），看起點或目的地周邊是否有異常。
+"""Tool 層：查 TDX 路況事件（車禍、壅塞等），看起點或目的地周邊是否有異常。
 
 端點與驗證：
 - 資料端點：GET {TDX_BASE_URL}/api/basic/v1/Traffic/RoadEvent/LiveEvent/City/{City}
@@ -6,19 +6,21 @@
 - TDX 全平台共用 OAuth2 client_credentials 驗證，端點固定為 TOKEN_URL，
   這支對 Bus、YouBike 等其他 TDX 資料集也適用，非本檔專屬。
 
-**已知限制（2026-09-19，尚未取得 TDX_CLIENT_ID/SECRET，無法對真實端點試打)**：
-parse_road_events() 對回應欄位採「多種可能命名都嘗試比對」的寬鬆解析，
-命中的候選命名來自 TDX 其他資料集（如站牌座標 Position.PositionLon/PositionLat）
-的通用慣例，但 RoadEvent 資料集本身的實際欄位命名尚未經真實回應驗證。
-一旦拿到金鑰，請先跑 scripts/smoke_tdx_road_events.py，若解析失敗，
-SchemaError 訊息會列出實際欄位名稱，照那個修 parse_road_events 即可。
-事件的分類代碼（EventType/SubEventType 等數字碼）目前沒有找到官方對照表，
-因此本檔不將代碼轉譯成中文說法，只在有現成 Description 文字時原樣帶出，
-避免顯示看起來確定、實際上是猜的分類。
+**真實回應格式（2026-09-19 用 scripts/smoke_tdx_road_events.py --record 對台南實測確認，
+非猜測）**：頂層是物件，事件陣列在 `LiveEvents`；每筆事件用 `Positions` 帶
+WKT 字串 `"POINT (經度 緯度)"`（不是巢狀的 lat/lon 物件）；地點文字在
+`Location.Other`；`Description` 每筆都有現成的中文說明（實測 30 筆全部有）；
+`EventTitle` 是簡短分類（實測看過「緊急救護」「壅塞」「極度壅塞」）；
+`EventType`/`EventSubType` 是數字碼，沒有找到官方對照表，所以不拿來轉譯
+分類名稱，只在 `Description`／`EventTitle` 都沒有時才把數字碼原樣帶出
+（`type_is_code=True`），避免顯示看起來確定、實際上是猜的分類。
+少數 `Description` 開頭出現字面上的 "null"（例如 "null北外環…"），這是
+台南市交通局來源資料本身的問題，本檔不做清洗，原樣帶出。
 """
 
 from __future__ import annotations
 
+import re
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -117,19 +119,37 @@ def _first_present(row: dict, keys: tuple[str, ...]):
     return None
 
 
-# 各欄位嘗試比對的候選命名，由最可能到最寬鬆。Position 巢狀寫法沿用 TDX
-# 站牌類資料集（Bus/YouBike）常見的 Position.PositionLon/PositionLat 慣例；
-# 其餘是常見的替代拼法。真實回應若都對不上，SchemaError 會印出實際欄位名。
+# 各欄位嘗試比對的候選命名，由確認過的真實欄位排到備用猜測。真實回應是
+# 2026-09-19 用 scripts/smoke_tdx_road_events.py --record 對台南實測的結果
+# （見檔案開頭說明）；備用猜測留著，換城市或 TDX 改版時多一層防呆，
+# 真的都對不上 SchemaError 會印出實際欄位名。
 _ID_KEYS = ("EventID", "RoadEventID", "ID", "Id")
 _DESCRIPTION_KEYS = ("Description", "EventDescription", "Comment", "Remark")
-_TYPE_KEYS = ("SubEventType", "EventType", "EventCategory")
-_ROAD_NAME_KEYS = ("RoadName", "RoadSection", "Location", "RoadID")
-_TIME_KEYS = ("ReportStartTime", "StartTime", "PublishTime", "SrcUpdateTime", "UpdateTime")
+_CATEGORY_KEYS = ("EventTitle", "EventCategory")
+_TYPE_KEYS = ("EventType", "EventSubType", "SubEventType")
+_TIME_KEYS = ("EffectiveTime", "PublishTime", "LastUpdateTime", "ReportStartTime", "StartTime", "UpdateTime")
+_WRAPPER_KEYS = ("LiveEvents", "RoadEvents", "Events", "Data", "data")
+
 _FLAT_LON_KEYS = ("PositionLon", "Longitude", "Lon", "lon", "longitude")
 _FLAT_LAT_KEYS = ("PositionLat", "Latitude", "Lat", "lat", "latitude")
+_WKT_POINT_RE = re.compile(r"^POINT\s*\(\s*([-\d.]+)\s+([-\d.]+)\s*\)$", re.IGNORECASE)
+
+
+def _parse_wkt_point(text) -> tuple[float, float] | None:
+    """解析 `"POINT (經度 緯度)"` 這種 WKT 格式，TDX 的 Positions 欄位實測是這個形狀。"""
+    if not isinstance(text, str):
+        return None
+    m = _WKT_POINT_RE.match(text.strip())
+    if not m:
+        return None
+    lon, lat = float(m.group(1)), float(m.group(2))
+    return lon, lat
 
 
 def _extract_position(row: dict) -> tuple[float, float] | None:
+    point = _parse_wkt_point(row.get("Positions"))
+    if point is not None:
+        return point
     position = row.get("Position")
     if isinstance(position, dict):
         lon = _first_present(position, _FLAT_LON_KEYS)
@@ -143,6 +163,19 @@ def _extract_position(row: dict) -> tuple[float, float] | None:
     return None
 
 
+def _extract_location_text(row: dict) -> str:
+    """地點描述。實測在 Location.Other（地址或路段文字），沒有獨立的路名欄位。"""
+    location = row.get("Location")
+    if isinstance(location, dict):
+        other = location.get("Other")
+        if other:
+            return other
+    for key in ("RoadName", "RoadSection", "RoadID"):
+        if row.get(key):
+            return row[key]
+    return ""
+
+
 def parse_road_events(raw) -> list[dict]:
     """把 TDX RoadEvent LiveEvent 的原始回應轉成統一格式的事件清單。
 
@@ -151,7 +184,11 @@ def parse_road_events(raw) -> list[dict]:
     而不是悄悄漏掉或猜一個座標。
     """
     if isinstance(raw, dict):
-        rows = raw.get("RoadEvents") or raw.get("Events") or raw.get("Data") or raw.get("data")
+        rows = None
+        for key in _WRAPPER_KEYS:
+            if key in raw:
+                rows = raw[key]
+                break
         if rows is None:
             raise SchemaError(f"回應是物件但找不到事件陣列，實際欄位：{sorted(raw.keys())}")
     else:
@@ -168,18 +205,22 @@ def parse_road_events(raw) -> list[dict]:
         position = _extract_position(row)
         if position is None:
             raise SchemaError(
-                f"找不到座標欄位，實際欄位：{sorted(row.keys())}（本檔預期 Position.PositionLon/"
-                "PositionLat 或同義的扁平欄位，請對照這份 keys 更新 parse_road_events）"
+                f"找不到座標欄位，實際欄位：{sorted(row.keys())}（本檔預期 Positions 是 "
+                "'POINT (經度 緯度)' 格式的 WKT 字串，請對照這份 keys 更新 parse_road_events）"
             )
         lon, lat = position
+        description = _first_present(row, _DESCRIPTION_KEYS) or ""
+        category = _first_present(row, _CATEGORY_KEYS) or ""
         type_code = _first_present(row, _TYPE_KEYS)
         events.append({
             "event_id": _first_present(row, _ID_KEYS) or "",
-            "description": _first_present(row, _DESCRIPTION_KEYS) or "",
+            "description": description,
+            "category": category,
             "type_code": type_code,
-            # 目前沒有官方代碼對照表，不把數字碼轉譯成中文分類，避免顯示錯誤資訊
-            "type_is_code": type_code is not None and _first_present(row, _DESCRIPTION_KEYS) is None,
-            "road_name": _first_present(row, _ROAD_NAME_KEYS) or "",
+            # 目前沒有官方代碼對照表，不把數字碼轉譯成中文分類，避免顯示錯誤資訊；
+            # 只有在連 Description、EventTitle 都沒有時才會是 True（實測 30 筆都沒遇到）
+            "type_is_code": type_code is not None and not description and not category,
+            "road_name": _extract_location_text(row),
             "reported_at": _first_present(row, _TIME_KEYS),
             "lat": lat,
             "lon": lon,
@@ -219,7 +260,8 @@ def get_road_events(city: str, lat: float, lon: float, radius_m: float = DEFAULT
         dict，包含：
         - status: "ok" 或 "error"
         - events: 半徑內的事件清單，依距離近到遠排序，每筆含 event_id、
-          description、type_code、type_is_code（分類是否只有數字代碼、
+          description（完整中文說明）、category（簡短分類，例如「壅塞」「緊急救護」，
+          可能是空字串）、type_code、type_is_code（分類是否只有數字代碼、
           沒有文字說明）、road_name、reported_at、lat、lon、distance_m
         - count: events 的筆數
         - source、fetched_at、mode: 資料來源網址、查詢時間、live 或 fixture 模式

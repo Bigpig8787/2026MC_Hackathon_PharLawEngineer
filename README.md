@@ -73,13 +73,13 @@ adk web                                          # 開 http://localhost:8000
   重建對照表：`./.venv/bin/python scripts/build_parking_locations.py`
 - **兩套校區代碼不相通**：GIS 的 `campusId` 是大樓編號前綴（A104 → A），
   與停車系統的 `CAMPUS_CODES`（A=光復、B=成功…）不是同一套，不可互相套用。
-- **路況事件的欄位命名尚未對過真實回應**：目前還沒有 `TDX_CLIENT_ID`/
-  `TDX_CLIENT_SECRET`，`parse_road_events`（`tools/road_events.py`）是照 TDX
-  其他資料集的慣例猜的，`fixtures/ncku_traffic/Tainan.json` 也是手寫示範資料、
-  不是真實錄製。拿到金鑰後跑 `scripts/smoke_tdx_road_events.py`；如果丟出
-  `SchemaError`，訊息會列出真實欄位名稱，照著改就好（該檔開頭與
-  `fixtures/ncku_traffic/README.md` 都有寫）。事件的分類代碼（`type_code`）
-  目前沒有官方對照表，`type_is_code=True` 時不要自己編一個中文分類名稱。
+- **路況事件是即時 feed，fixture 只是某一刻的快照**：`parse_road_events`
+  （`tools/road_events.py`）已對真實 TDX 端點驗證過（2026-09-19），欄位命名
+  不是猜的；但事件內容本身一直在變，`fixtures/ncku_traffic/Tainan.json`
+  錄製當下成大周邊 500m 內剛好沒有事件，這是真實結果不是抓錯半徑，細節見
+  `fixtures/ncku_traffic/README.md`。事件的分類代碼（`type_code`）沒有官方
+  對照表，只在連 `description`／`category` 都沒有時才會是 `type_is_code=True`
+  （目前實測沒遇過），這種情況不要自己編一個中文分類名稱。
 
 ## 尚未完成
 
