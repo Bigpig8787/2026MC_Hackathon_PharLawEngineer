@@ -1,0 +1,13 @@
+{
+  "rooms": [
+    {
+      "room": "4263",
+      "building_id": "csie",
+      "floor": "4F",
+      "wing": "東側",
+      "entrance_id": "csie-east",
+      "instructions": "從東側門進，右手邊樓梯上 4 樓，出樓梯往東走到底。",
+      "verified": false
+    }
+  ]
+}

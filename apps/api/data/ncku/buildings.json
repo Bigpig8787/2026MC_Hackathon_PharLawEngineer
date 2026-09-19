@@ -1,0 +1,15 @@
+{
+  "buildings": [
+    {
+      "id": "csie",
+      "name": "資訊系館",
+      "campus": "成功校區",
+      "location": { "lat": 22.9997, "lng": 120.2220 },
+      "verified": false,
+      "entrances": [
+        { "id": "csie-east", "name": "東側門", "location": { "lat": 22.9996, "lng": 120.2226 } },
+        { "id": "csie-west", "name": "西側門", "location": { "lat": 22.9996, "lng": 120.2214 } }
+      ]
+    }
+  ]
+}

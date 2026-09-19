@@ -1,0 +1,7 @@
+{
+  "lots": [
+    { "id": "lot-a", "name": "小東路側機車停車場", "location": { "lat": 23.0001, "lng": 120.2227 }, "covered": false, "capacity": 120, "verified": false },
+    { "id": "lot-b", "name": "成功校區地下機車停車場", "location": { "lat": 22.9988, "lng": 120.2234 }, "covered": true, "capacity": 400, "verified": false },
+    { "id": "lot-c", "name": "光復校區機車停車場", "location": { "lat": 22.9975, "lng": 120.2190 }, "covered": false, "capacity": 300, "verified": false }
+  ]
+}

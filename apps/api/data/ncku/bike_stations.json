@@ -1,0 +1,7 @@
+{
+  "stations": [
+    { "id": "yb-dongning", "name": "東寧路口", "location": { "lat": 22.9908, "lng": 120.2276 }, "verified": false },
+    { "id": "yb-ncku-north", "name": "成大北門", "location": { "lat": 23.0003, "lng": 120.2218 }, "verified": false },
+    { "id": "yb-ncku-east", "name": "成大東門", "location": { "lat": 22.9990, "lng": 120.2240 }, "verified": false }
+  ]
+}

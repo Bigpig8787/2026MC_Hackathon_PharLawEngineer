@@ -1,0 +1,7 @@
+{
+  "stops": [
+    { "id": "bs-dongning", "name": "東寧路口站", "location": { "lat": 22.9910, "lng": 120.2274 }, "verified": false },
+    { "id": "bs-ncku-north", "name": "成大北門站", "location": { "lat": 23.0012, "lng": 120.2222 }, "verified": false },
+    { "id": "bs-ncku-east", "name": "成大東門站", "location": { "lat": 22.9988, "lng": 120.2244 }, "verified": false }
+  ]
+}

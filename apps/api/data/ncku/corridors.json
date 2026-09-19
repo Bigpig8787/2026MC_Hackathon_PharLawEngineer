@@ -1,0 +1,7 @@
+{
+  "corridors": [
+    { "id": "xiaodong-rd", "name": "小東路", "aliases": ["小東路", "Xiaodong Rd", "Xiaodong Road"] },
+    { "id": "changrong-rd", "name": "長榮路", "aliases": ["長榮路", "Changrong Rd", "Changrong Road"] },
+    { "id": "dongning-rd", "name": "東寧路", "aliases": ["東寧路", "Dongning Rd", "Dongning Road"] }
+  ]
+}
