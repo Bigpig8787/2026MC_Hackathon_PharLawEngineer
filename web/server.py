@@ -29,8 +29,10 @@ from api import load_settings
 from commute_agent.tools.class_schedule import PROJECT_ROOT, find_classes, load_courses
 from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
+from commute_agent.skills.departure_plan import plan_departure
 from commute_agent.skills.parking_plan import plan_parking
-from commute_agent.skills.trip_plan import estimate_trip
+from commute_agent.tools.tdx_bus import get_bus_eta
+from commute_agent.tools.youbike import get_bike_status
 from commute_agent.tools.route_link import TRAVEL_MODE_LABELS, build_route_link
 
 WEB_DIR = Path(__file__).resolve().parent
@@ -111,14 +113,18 @@ def _with_route(entry: dict | None, origin: str, travel_mode: str) -> dict | Non
     return enriched
 
 
-def _parking_for(entry: dict | None, vehicle_type: str) -> dict | None:
-    """騎車或開車時才需要停車建議；目的地查不到大樓就不猜。"""
+def _parking_for(entry: dict | None, vehicle_type: str, origin: str) -> dict | None:
+    """騎車或開車時才需要停車建議；目的地查不到大樓就不猜。
+
+    這裡只列停車場，不算分段時間——那由 plan_departure 負責，
+    兩邊都算會讓同一趟行程重複呼叫 Google 兩次。
+    """
     if entry is None or not entry.get("building_name"):
         return None
     plan = plan_parking(entry["building_name"], vehicle_type)
     if plan.get("recommended"):
         plan["recommended"]["route_link"] = build_route_link(
-            plan["recommended"]["name"], travel_mode="driving")
+            plan["recommended"]["name"], origin=origin or None, travel_mode="driving")
     return plan
 
 
@@ -127,6 +133,15 @@ def _save_schedule(schedule: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(schedule, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def _bikes_for(entry: dict | None, origin: str) -> dict | None:
+    """騎 YouBike 時，起點要借得到車、終點要還得了車，兩邊都要查。"""
+    if entry is None or not origin:
+        return None
+    borrow = get_bike_status(origin, "bike")
+    ret = get_bike_status(entry["building_name"] or entry["location"], "dock")
+    return {"borrow": borrow, "return": ret}
 
 
 @app.get("/api/state")
@@ -161,7 +176,8 @@ def state(mode: str = "walking", vehicle: str = "機車",
     if not path.is_file():
         return JSONResponse({**base, "has_schedule": False, "schedule_source": "",
                              "current_class": None, "next_class": None,
-                             "trip": None, "parking": None, "courses": []})
+                             "departure": None, "parking": None, "bikes": None,
+                             "bus": None, "courses": []})
 
     try:
         courses = load_courses(path)
@@ -169,16 +185,18 @@ def state(mode: str = "walking", vehicle: str = "機車",
     except (ValueError, OSError) as exc:
         return JSONResponse({**base, "has_schedule": False, "courses": [],
                              "current_class": None, "next_class": None,
-                             "trip": None, "parking": None, "schedule_source": "",
+                             "departure": None, "parking": None, "bikes": None,
+                             "bus": None, "schedule_source": "",
                              "error": f"課表檔案讀取失敗：{exc}"}, status_code=200)
 
     current, upcoming = find_classes(courses, moment)
     next_class = _with_route(upcoming, start, mode)
 
-    trip = None
-    if next_class:
-        destination = next_class["building_name"] or next_class["location"]
-        trip = estimate_trip(start, destination, mode) if start else None
+    # 出發規劃一次算完路程、緩衝與天氣；騎車模式的分段時間也在裡面，
+    # 所以上面的停車查詢不再重算，避免同一趟路重複呼叫 Google。
+    # 傳入使用者上傳的那份課表，否則出發時間會依範例課表算，跟畫面顯示的課不同堂
+    departure = (plan_departure(start, mode, vehicle, str(path))
+                 if (next_class and start) else None)
 
     return JSONResponse({
         **base,
@@ -186,9 +204,12 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "schedule_source": source,
         "current_class": _with_route(current, start, mode),
         "next_class": next_class,
-        "trip": trip,
-        # 只有騎車開車才需要停車位，步行與大眾運輸不查，省掉七次連線
-        "parking": _parking_for(next_class, vehicle) if mode == "driving" else None,
+        "departure": departure,
+        # 每個模式只查自己用得到的資料：停車位要掃七個校區、公車有速率限制、
+        # YouBike 要下載 6 MB，全部都查會讓每次換模式都變慢又浪費額度。
+        "parking": _parking_for(next_class, vehicle, start) if mode == "driving" else None,
+        "bikes": _bikes_for(next_class, start) if mode == "bicycling" else None,
+        "bus": get_bus_eta(start) if (mode == "transit" and start) else None,
         "courses": courses,
     })
 

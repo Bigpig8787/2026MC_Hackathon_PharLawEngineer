@@ -42,6 +42,8 @@ class Settings:
 
     # 課表與預設起點
     class_schedule_path: str
+    # 時間來源："auto"（免費的先試，答不出來才用 Google）、"estimate" 或 "google"
+    travel_time_provider: str
     # 住家地址算個資，預設留空，實際值放在 .gitignore 擋掉的 .env
     default_origin: str = field(default="", repr=False)
 
@@ -73,6 +75,7 @@ def load_settings(load_env_file: bool = True) -> Settings:
         ncku_gis_base_url=_env("NCKU_GIS_BASE_URL", "https://db.nckumap.ncku.edu.tw/nckugis/public"),
         ncku_parking_base_url=_env("NCKU_PARKING_BASE_URL", "https://apss.oga.ncku.edu.tw/park/index.php/park11215"),
         class_schedule_path=_env("CLASS_SCHEDULE_PATH", "data/class_schedule.json"),
+        travel_time_provider=_env("TRAVEL_TIME_PROVIDER", "auto").lower(),
         default_origin=_env("DEFAULT_ORIGIN"),
         # 與 google-genai SDK 一致：GOOGLE_API_KEY 優先，其次 GEMINI_API_KEY
         gemini_api_key=_env("GOOGLE_API_KEY") or _env("GEMINI_API_KEY"),

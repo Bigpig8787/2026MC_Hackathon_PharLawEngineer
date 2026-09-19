@@ -144,6 +144,15 @@
     padding: 12px; border-radius: 9px; background: var(--accent-soft); margin-bottom: 16px;
   }
   .trip b { font-size: 1.125rem; color: var(--accent); }
+  .trip.urgent { background: #fff4e5; border-left: 3px solid var(--now); }
+  .trip.urgent b { color: var(--now); }
+  .trip.late { background: #fde8e8; border-left: 3px solid #b91c1c; }
+  .trip.late b { color: #b91c1c; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .trip.urgent { background: #3a2a14; }
+    :root:not([data-theme="light"]) .trip.late { background: #3a1c1c; }
+  }
+  .note.warn { color: var(--now); }
   .trip span { font-size: 0.875rem; color: var(--muted); }
 
   /* 上課提醒橫幅：時間到才出現，用警示色跟一般卡片區隔開 */
@@ -237,6 +246,7 @@
   <div class="modes" id="modes"></div>
 
   <section class="card" id="hero"><p class="sub">查詢中…</p></section>
+  <section class="card" id="modeinfo" hidden></section>
   <section class="card" id="parking" hidden></section>
 
   <section class="card" id="gridCard">
@@ -265,17 +275,72 @@ function describeGap(minutes) {
   return `還有 ${Math.floor(h / 24)} 天 ${h % 24} 小時`;
 }
 
+const VERDICT = {
+  plenty: { label: "時間充裕", cls: "" },
+  leave_now: { label: "該出發了", cls: "urgent" },
+  too_late: { label: "已經來不及準時抵達", cls: "late" },
+};
+
 function renderTrip(data) {
-  const t = data.trip;
-  if (!t) return "";
-  if (!t.can_estimate) {
-    return `<p class="note">${esc(t.note)}</p>`;
+  const d = data.departure;
+  if (!d || d.status !== "ok") return "";
+  if (!d.verdict) return `<p class="note">${esc(d.note || "無法推算出發時刻。")}</p>`;
+
+  const v = VERDICT[d.verdict] || { label: d.verdict, cls: "" };
+  const at = d.leave_at.slice(11, 16);
+  const gap = d.minutes_until_departure;
+  const when = gap >= 0 ? describeGap(gap) : `已經超過 ${Math.abs(gap)} 分鐘`;
+  const w = d.weather;
+
+  return `<div class="trip ${v.cls}">
+    <b>${at} 出發・${esc(v.label)}</b>
+    <span>${esc(when)}</span>
+    <span>${esc(data.travel_mode_label)} ${d.travel_minutes} 分＋進教室緩衝 ${d.buffer_minutes} 分
+      ${d.is_estimate ? "（估算）" : "（Google 實際路線）"}</span>
+    ${w ? `<span>出發時 ${esc(w.weather || "—")}・降雨機率
+      ${w.rain_probability === null ? "無資料" : w.rain_probability + "%"}・體感
+      ${esc(w.apparent_temperature || "—")}°C</span>` : ""}
+  </div>
+  ${d.weather_advice ? `<p class="note warn">${esc(d.weather_advice)}</p>` : ""}`;
+}
+
+function stationRows(list, key, unit) {
+  if (!list.length) return '<p class="note">附近沒有符合條件的站點。</p>';
+  return list.map(s => `<div class="lot"><div><b>${esc(s.name)}</b>
+    <div class="meta">${s.distance_m} 公尺・走 ${s.walk_minutes} 分</div></div>
+    <div class="free">${s[key]} ${unit}</div></div>`).join("");
+}
+
+function renderModeInfo(data) {
+  const box = document.getElementById("modeinfo");
+  const parts = [];
+
+  if (data.bikes) {
+    const b = data.bikes.borrow, r = data.bikes["return"];
+    parts.push(`<p class="label">YouBike・出發地借車</p>`);
+    parts.push(b.status === "error" ? `<p class="err">${esc(b.error_message)}</p>`
+               : stationRows(b.stations || [], "bikes", "可借"));
+    parts.push(`<p class="label" style="margin-top:20px">YouBike・目的地還車</p>`);
+    parts.push(r.status === "error" ? `<p class="err">${esc(r.error_message)}</p>`
+               : stationRows(r.stations || [], "docks", "空位"));
   }
-  return `<div class="trip">
-    <b>${esc(data.travel_mode_label)}約 ${t.minutes} 分鐘</b>
-    <span>${esc(t.origin_name)} → ${esc(t.destination_name)}・直線 ${t.distance_m} 公尺</span>
-    <span>${esc(t.note)}</span>
-  </div>`;
+
+  if (data.bus) {
+    const bus = data.bus;
+    parts.push(`<p class="label">公車・出發地附近</p>`);
+    if (bus.status === "error") {
+      parts.push(`<p class="err">${esc(bus.error_message)}</p>`);
+    } else if (!(bus.arrivals || []).length) {
+      parts.push(`<p class="note">${esc(bus.note || "目前沒有班次資訊。")}</p>`);
+    } else {
+      parts.push(bus.arrivals.map(a => `<div class="lot"><div><b>${esc(a.route)}</b>
+        <div class="meta">${esc(a.stop)}</div></div>
+        <div class="free">${a.minutes} 分</div></div>`).join(""));
+    }
+  }
+
+  box.hidden = parts.length === 0;
+  box.innerHTML = parts.join("");
 }
 
 function renderHero(data) {
@@ -396,7 +461,8 @@ function renderParking(data) {
       <div class="free">${l.available}</div></div>`;
   };
 
-  let html = `<p class="label">停車建議（${esc(data.vehicle_type)}）</p>
+  let html = "";
+  html += `<p class="label">停車建議（${esc(data.vehicle_type)}）</p>
     <div class="lot pick"><div><b>${esc(rec.name)}</b>
       <div class="meta">${esc(rec.campus)}・距教室 ${rec.distance_m} 公尺・步行約 ${rec.minutes} 分</div>
       </div><div class="free">剩 ${rec.available}</div></div>
@@ -550,7 +616,12 @@ function renderBanner() {
 
   const where = (next.building_name || next.location) + (next.floor ? ` ${next.floor}` : "");
   const bits = [];
-  if (d.trip && d.trip.can_estimate) bits.push(`${d.travel_mode_label}約 ${d.trip.minutes} 分鐘`);
+  // 時間改由 departure 提供：它已含停車與進教室的緩衝，比單純的路程時間貼近實際
+  const dep = d.departure;
+  if (dep && dep.travel_minutes !== null && dep.travel_minutes !== undefined) {
+    bits.push(`${d.travel_mode_label}${dep.is_estimate ? "約 " : " "}${dep.travel_minutes} 分鐘`);
+  }
+  if (dep && dep.leave_at) bits.push(`建議 ${dep.leave_at.slice(11, 16)} 出發`);
   if (d.parking && d.parking.recommended) {
     bits.push(`${d.parking.recommended.name}還有 ${d.parking.recommended.available} 位`);
   }
@@ -585,9 +656,17 @@ function schedulePoll() {
 function load() {
   clearTimeout(pollTimer);
   $("hero").innerHTML = '<p class="spinner">查詢中…</p>';
-  if (mode === "driving") {
-    $("parking").hidden = false;
-    $("parking").innerHTML = '<p class="spinner">正在比對全校停車場車位…</p>';
+  // 每個模式查的資料不同，載入提示也要講清楚在等什麼
+  const busy = { driving: ["parking", "正在比對全校停車場車位…"],
+                 bicycling: ["modeinfo", "正在查 YouBike 即時車位…"],
+                 transit: ["modeinfo", "正在查公車到站時間…"] }[mode];
+  if (busy) {
+    const el = $(busy[0]);
+    el.hidden = false;
+    el.innerHTML = `<p class="spinner">${busy[1]}</p>`;
+  } else {
+    $("modeinfo").hidden = true;
+    $("parking").hidden = true;
   }
   const params = new URLSearchParams({ mode, vehicle });
   if (origin) params.set("origin", origin);
@@ -622,6 +701,7 @@ function load() {
       $("simTime").value = simNow || toLocalInput(now);
       renderModes(data.modes, data.travel_mode, data.vehicle_type);
       renderHero(data);
+      renderModeInfo(data);
       renderParking(data);
       renderGrid(data);
       bannerSig = "";

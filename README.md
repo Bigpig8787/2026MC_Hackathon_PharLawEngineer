@@ -24,7 +24,7 @@ VS Code 的 Python 擴充功能可能會干擾長時間執行的伺服器程序�
 ## 驗證
 
 ```powershell
-python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 47 項）
+python -m pytest -q                              # 單元測試，不需網路與金鑰（目前 178 項）
 python scripts/smoke_ncku_gis.py 4264 65304 格致廳   # 打真實成大教室 GIS
 adk web                                          # 開 http://localhost:8000
 ```
@@ -42,7 +42,30 @@ adk web                                          # 開 http://localhost:8000
 | `get_next_class` | `tools/class_schedule.py` | 讀 `data/class_schedule.json`，依現在時間算出正在上的課與下一堂 |
 | `get_building_location` | `tools/ncku_geo.py` | 大樓名稱 → 經緯度，另含距離與時間估算的純函式 |
 | `plan_parking` | `skills/parking_plan.py` | 目的地大樓＋車種 → 最近且車位足夠的停車場（Skill 層，會串多個 Tool） |
-| `estimate_trip` | `skills/trip_plan.py` | 起點＋目的地 → 距離與估算時間，起點在校外時明確回報無法估算 |
+| `estimate_trip` | `skills/trip_plan.py` | 起點＋目的地 → 距離與時間，並標明來源是估算還是實際路線 |
+| `plan_ride_and_walk` | `skills/trip_plan.py` | 騎車行程拆成「騎到停車場」＋「走到教室」兩段，整趟只呼叫一次 Google |
+| `get_travel_time` | `tools/travel_time.py` | 時間來源的統一接口，依設定選 `estimate` 或 Google Routes，後者失敗會自動退回前者 |
+| `compute_route` | `tools/google_routes.py` | Google Routes API，真實路線時間（需金鑰、會計費） |
+| `plan_departure` | `skills/departure_plan.py` | 倒推「該幾點出發」，含進教室緩衝；考試與報告自動加長緩衝 |
+| `get_bike_status` | `tools/youbike.py` | 某地點附近 YouBike 可借車輛或可還空位（免金鑰） |
+| `get_weather` | `tools/weather.py` | 中央氣象署臺南市鄉鎮預報，降雨機率與體感溫度（需 `CWA_API_KEY`） |
+| `get_bus_eta` | `tools/tdx_bus.py` | TDX 臺南市公車即時到站（需 `TDX_CLIENT_ID`／`SECRET`） |
+
+### 騎車行程為什麼要拆兩段
+
+Google 只會算到大樓門口的騎車時間，但實際上得先停車再走過去。
+`plan_ride_and_walk` 因此把行程拆開：
+
+| 路段 | 來源 | 花錢 |
+| --- | --- | --- |
+| 出發地 → 停車場 | Google Routes API（真實路網） | 是，整趟一次 |
+| 停車場 → 教室 | 成大 GIS 座標估算 | 否 |
+
+送給 Google 的是**座標**而不是名稱——校內大樓帶編號前綴（`B406 三系館鋼構區`）
+時 Google 常對到隔壁棟，實測就曾被解析成材料系館。座標由免費的 GIS 提供。
+
+騎車段會明確指定走 Google，不受 `TRAVEL_TIME_PROVIDER` 影響——那段本來就是
+付費才有意義的部分。走路與自行車則交給預設的 `auto` 自行判斷要不要花錢。
 
 ## 課表視覺化頁面
 
@@ -54,28 +77,57 @@ adk web                                          # 開 http://localhost:8000
 自動比對全校停車場，推薦最近且剩餘車位 ≥ 30 的那一個。
 
 出發地可以在頁面上自己填（例如「成大圖書館」），留空則用 `.env` 的
-`DEFAULT_ORIGIN`。填校內地點時會顯示估算的距離與時間；校外地址算不出來，
-頁面會直接說明原因而不是給一個假數字。
+`DEFAULT_ORIGIN`。校內地點用免費估算，校外地址（住家、車站）會自動改用
+Google 的實際路線，介面會標明這次的時間是估算還是實際路線。
 
 ## 已知的資料限制
 
-- **時間是估算值**：直線距離乘 1.3 繞路係數再除以平均速度，不含紅綠燈與實際路網。
-  要精確時間得接 Google Maps Routes API（需金鑰與計費）。
-- **只有校內起點算得出時間**：距離來自成大 GIS 的大樓座標，所以起點與目的地
-  都必須是校內地點。校外地址（例如住家、火車站）GIS 查不到，`estimate_trip`
-  會回 `can_estimate=False`，不會拿附近大樓的座標充數。要支援校外起點得接
-  地理編碼服務。
+- **時間有兩個來源**，由 `.env` 的 `TRAVEL_TIME_PROVIDER` 決定策略：
+  - `auto`（預設，建議）：免費的先試，答不出來才花一次 Google。校內兩點走路
+    騎車不計費，只有校外起點與大眾運輸這種免費算不出來的情況才付費。
+  - `estimate`：直線距離乘 1.3 繞路係數再除以平均速度。免費、免金鑰，
+    但只涵蓋校內地點，而且偏樂觀（圖書館→資訊系館估 4 分，實際路線是 6 分）。
+  - `google`：Google Routes API，真實路網與大眾運輸班次，起訖點可以是任意地址，
+    因此校外住家也算得出來。需要 `GOOGLE_MAPS_API_KEY` 且**會計費**。
+    金鑰缺失或 API 失敗時會自動退回 `estimate`，並在 `fallback_reason` 說明原因。
+
+  上層一律呼叫 `tools/travel_time.py` 的 `get_travel_time`，不必知道來源是哪個；
+  回傳的 `is_estimate` 用來決定介面要不要寫「約」。
+- **`estimate` 來源只算得出校內起點**：距離來自成大 GIS 的大樓座標，校外地址
+  （住家、火車站）查不到。預設的 `auto` 會在這種情況自動改用 Google，
+  所以校外起點仍算得出來；硬設成 `estimate` 才會回 `can_estimate=False`。
+  任何情況下都不會拿附近大樓的座標充數。
 - **6 個停車場沒有座標**：校門（光復前門、成功前門、勝利後門）、路名（林森路）
   與成杏校區兩個停車場在 GIS 查不到同名大樓，不會被硬填座標，排序時排最後。
   重建對照表：`./.venv/bin/python scripts/build_parking_locations.py`
 - **兩套校區代碼不相通**：GIS 的 `campusId` 是大樓編號前綴（A104 → A），
   與停車系統的 `CAMPUS_CODES`（A=光復、B=成功…）不是同一套，不可互相套用。
 
+## 對照 CampusPulse 規劃的進度
+
+`CampusPulse.md` 描述的 Agent Loop 是 Perception → Planning → Action → Reflection。
+目前完成到 Planning，Action 只做到「產生導航連結」，Reflection 尚未開始。
+
+| CampusPulse 規劃的 Function | 狀態 | 備註 |
+| --- | --- | --- |
+| 課表理解 | 完成（JSON） | 截圖辨識尚未做，目前靠手動維護 `data/class_schedule.json` |
+| 路線與時間 | 完成 | `estimate_trip`、`plan_ride_and_walk` |
+| 出發時間推算 | 完成 | `plan_departure` |
+| `get_bike_status()` | 完成 | YouBike 2.0 官方端點，免金鑰 |
+| `get_weather()` | 完成 | 資料集 `F-D0047-077`（臺南市鄉鎮），不是縣市層級的 `-089` |
+| `get_bus_eta()` | 完成 | 到站端點不支援 `nearby`，改以站牌 UID 過濾 |
+| `get_flood_sensors()` | 未做 | 水利署，需註冊 |
+| `get_air_quality()` | 未做 | 環境部，需註冊 |
+| `read_course_email()`／`send_email()` | 未做 | Gmail API，需 OAuth |
+| `update_schedule()` | 未做 | Google Calendar API，需 OAuth |
+| 天氣影響出發建議 | 完成 | `plan_departure` 會看出發當下的降雨機率，騎車淋雨時建議改公車 |
+| 持續監控與自動重新規畫 | 未做 | 目前都是使用者主動詢問才執行，還不會自己盯著環境變化 |
+
 ## 尚未完成
 
 - 室內樓層平面圖（`buildinfo.htm?action=getBoundByBuildId` 等，資料格式待確認）
 - 課表截圖辨識
-- Skill 層目前只有 `parking_plan`，尚未改用 ADK 的 `SkillToolset` 與自我修正 loop
+- 尚未改用 ADK 的 `SkillToolset` 與自我修正 loop
 
 ## 團隊規範
 
