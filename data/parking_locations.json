@@ -1,0 +1,293 @@
+{
+  "note": "由 scripts/build_parking_locations.py 反查 GIS 產生，座標為同名大樓中心點",
+  "lots": [
+    {
+      "lot_name": "三系館地下機車停車場",
+      "campus": "成功校區",
+      "lat": 22.997868443081018,
+      "lon": 120.2216571669103,
+      "matched_query": "三系館",
+      "matched_building": "B406 三系館鋼構區",
+      "build_id": "B103"
+    },
+    {
+      "lot_name": "三系館地下汽車停車場",
+      "campus": "成功校區",
+      "lat": 22.997868443081018,
+      "lon": 120.2216571669103,
+      "matched_query": "三系館",
+      "matched_building": "B406 三系館鋼構區",
+      "build_id": "B103"
+    },
+    {
+      "lot_name": "修齊大樓地下機車停車場",
+      "campus": "光復校區",
+      "lat": 23.000687188006292,
+      "lon": 120.21781527627664,
+      "matched_query": "修齊大樓",
+      "matched_building": "A104 修齊大樓",
+      "build_id": "A022"
+    },
+    {
+      "lot_name": "修齊大樓地下汽車停車場",
+      "campus": "光復校區",
+      "lat": 23.000687188006292,
+      "lon": 120.21781527627664,
+      "matched_query": "修齊大樓",
+      "matched_building": "A104 修齊大樓",
+      "build_id": "A022"
+    },
+    {
+      "lot_name": "儀設大樓地下汽車停車場",
+      "campus": "自強校區",
+      "lat": 22.997967689538136,
+      "lon": 120.22367906096702,
+      "matched_query": "儀設大樓",
+      "matched_building": "D504 照坤精密儀器大樓",
+      "build_id": "D201"
+    },
+    {
+      "lot_name": "光復前門地下機車停車場",
+      "campus": "光復校區",
+      "lat": null,
+      "lon": null,
+      "matched_query": "",
+      "matched_building": "",
+      "build_id": ""
+    },
+    {
+      "lot_name": "勝利後門平面汽車停車場",
+      "campus": "勝利校區",
+      "lat": null,
+      "lon": null,
+      "matched_query": "",
+      "matched_building": "",
+      "build_id": ""
+    },
+    {
+      "lot_name": "化工系地下汽車停車場",
+      "campus": "自強校區",
+      "lat": 22.997720585540105,
+      "lon": 120.22256005761473,
+      "matched_query": "化工系",
+      "matched_building": "D404 化學工程系館",
+      "build_id": "D001"
+    },
+    {
+      "lot_name": "卓群大樓地下汽車停車場",
+      "campus": "成功校區",
+      "lat": 23.002328196592348,
+      "lon": 120.22181699214066,
+      "matched_query": "卓群大樓",
+      "matched_building": "生醫卓群大樓",
+      "build_id": "C010"
+    },
+    {
+      "lot_name": "圖書館地下汽車停車場",
+      "campus": "成功校區",
+      "lat": 22.995525782871347,
+      "lon": 120.21955682352767,
+      "matched_query": "圖書館",
+      "matched_building": "G001 圖書館(舊)",
+      "build_id": "G001"
+    },
+    {
+      "lot_name": "土木系平面機車停車場",
+      "campus": "成功校區",
+      "lat": 22.999235516933517,
+      "lon": 120.22130316989754,
+      "matched_query": "土木系",
+      "matched_building": "B407 土木工程系館",
+      "build_id": "B026"
+    },
+    {
+      "lot_name": "奇美樓地下機車停車場",
+      "campus": "自強校區",
+      "lat": 22.996308795089934,
+      "lon": 120.22243294447935,
+      "matched_query": "奇美樓",
+      "matched_building": "D501 奇美大樓｜電機工程系",
+      "build_id": "D202"
+    },
+    {
+      "lot_name": "成功前門地下機車停車場",
+      "campus": "成功校區",
+      "lat": null,
+      "lon": null,
+      "matched_query": "",
+      "matched_building": "",
+      "build_id": ""
+    },
+    {
+      "lot_name": "成杏平面機車停車場",
+      "campus": "成杏校區",
+      "lat": null,
+      "lon": null,
+      "matched_query": "",
+      "matched_building": "",
+      "build_id": ""
+    },
+    {
+      "lot_name": "成杏校區平面汽車停車場",
+      "campus": "成杏校區",
+      "lat": null,
+      "lon": null,
+      "matched_query": "",
+      "matched_building": "",
+      "build_id": ""
+    },
+    {
+      "lot_name": "新園平面機車停車場",
+      "campus": "成功校區",
+      "lat": 22.99921233055017,
+      "lon": 120.2187501680169,
+      "matched_query": "新園",
+      "matched_building": "大新園",
+      "build_id": "B047"
+    },
+    {
+      "lot_name": "旺宏館汽車停車場",
+      "campus": "勝利校區",
+      "lat": 22.995089134015995,
+      "lon": 120.21950389264354,
+      "matched_query": "旺宏館",
+      "matched_building": "旺宏館",
+      "build_id": "G017"
+    },
+    {
+      "lot_name": "林森路平面機車停車場",
+      "campus": "自強校區",
+      "lat": null,
+      "lon": null,
+      "matched_query": "",
+      "matched_building": "",
+      "build_id": ""
+    },
+    {
+      "lot_name": "理學大樓地下機車停車場",
+      "campus": "成功校區",
+      "lat": 23.000265045594304,
+      "lon": 120.21888382232268,
+      "matched_query": "理學",
+      "matched_building": "B208 理學教學大樓",
+      "build_id": "B104"
+    },
+    {
+      "lot_name": "理學大樓地下汽車停車場",
+      "campus": "成功校區",
+      "lat": 23.000265045594304,
+      "lon": 120.21888382232268,
+      "matched_query": "理學",
+      "matched_building": "B208 理學教學大樓",
+      "build_id": "B104"
+    },
+    {
+      "lot_name": "生科大樓地下機車停車場",
+      "campus": "力行校區",
+      "lat": 23.0029824814714,
+      "lon": 120.21682729227723,
+      "matched_query": "生科大樓",
+      "matched_building": "E301 生物科技教學大樓",
+      "build_id": "E061"
+    },
+    {
+      "lot_name": "生科大樓地下汽車停車場",
+      "campus": "力行校區",
+      "lat": 23.0029824814714,
+      "lon": 120.21682729227723,
+      "matched_query": "生科大樓",
+      "matched_building": "E301 生物科技教學大樓",
+      "build_id": "E061"
+    },
+    {
+      "lot_name": "生醫卓群地下機車停車場",
+      "campus": "成杏校區",
+      "lat": 23.002328196592348,
+      "lon": 120.22181699214066,
+      "matched_query": "生醫卓群",
+      "matched_building": "生醫卓群大樓",
+      "build_id": "C010"
+    },
+    {
+      "lot_name": "生醫卓群地下汽車停車場",
+      "campus": "成杏校區",
+      "lat": 23.002328196592348,
+      "lon": 120.22181699214066,
+      "matched_query": "生醫卓群",
+      "matched_building": "生醫卓群大樓",
+      "build_id": "C010"
+    },
+    {
+      "lot_name": "社科院地下汽車停車場",
+      "campus": "力行校區",
+      "lat": 23.001975507058415,
+      "lon": 120.21667601888399,
+      "matched_query": "社科院",
+      "matched_building": "E901 社會科學院大樓",
+      "build_id": "E047"
+    },
+    {
+      "lot_name": "社科院平面機車停車場",
+      "campus": "力行校區",
+      "lat": 23.001975507058415,
+      "lon": 120.21667601888399,
+      "matched_query": "社科院",
+      "matched_building": "E901 社會科學院大樓",
+      "build_id": "E047"
+    },
+    {
+      "lot_name": "管理學院地下汽車停車場",
+      "campus": "光復校區",
+      "lat": 22.998180805104482,
+      "lon": 120.21769094659199,
+      "matched_query": "管理學院",
+      "matched_building": "A703 管理學院綜合大樓",
+      "build_id": "A040"
+    },
+    {
+      "lot_name": "管理學院機車停車場",
+      "campus": "光復校區",
+      "lat": 22.998180805104482,
+      "lon": 120.21769094659199,
+      "matched_query": "管理學院",
+      "matched_building": "A703 管理學院綜合大樓",
+      "build_id": "A040"
+    },
+    {
+      "lot_name": "都計系地下機車停車場",
+      "campus": "光復校區",
+      "lat": 23.000911965550664,
+      "lon": 120.21589880608201,
+      "matched_query": "都計系",
+      "matched_building": "A607 都市計劃系館",
+      "build_id": "A002"
+    },
+    {
+      "lot_name": "都計系地下汽車停車場",
+      "campus": "光復校區",
+      "lat": 23.000911965550664,
+      "lon": 120.21589880608201,
+      "matched_query": "都計系",
+      "matched_building": "A607 都市計劃系館",
+      "build_id": "A002"
+    },
+    {
+      "lot_name": "雲平地下汽車停車場",
+      "campus": "光復校區",
+      "lat": 22.998881074147995,
+      "lon": 120.21755118608081,
+      "matched_query": "雲平",
+      "matched_building": "A004 雲平大樓東棟",
+      "build_id": "A029"
+    },
+    {
+      "lot_name": "雲平東側機車停車場",
+      "campus": "光復校區",
+      "lat": 22.998881074147995,
+      "lon": 120.21755118608081,
+      "matched_query": "雲平",
+      "matched_building": "A004 雲平大樓東棟",
+      "build_id": "A029"
+    }
+  ]
+}

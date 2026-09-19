@@ -1,0 +1,87 @@
+{
+  "timezone": "Asia/Taipei",
+  "source": "class_schedule.jpeg",
+  "courses": [
+    {
+      "name": "數位IC設計",
+      "day": "Monday",
+      "day_zh": "星期一",
+      "periods": [2, 3, 4],
+      "start_time": "09:00",
+      "end_time": "12:00",
+      "location": "資訊系館4264"
+    },
+    {
+      "name": "日文（一）",
+      "day": "Monday",
+      "day_zh": "星期一",
+      "periods": [5, 6],
+      "start_time": "13:10",
+      "end_time": "15:00",
+      "location": "唯農大樓7208"
+    },
+    {
+      "name": "音樂劇作品賞析",
+      "day": "Tuesday",
+      "day_zh": "星期二",
+      "periods": [5, 6],
+      "start_time": "13:10",
+      "end_time": "15:00",
+      "location": "資訊大樓格致廳小講堂"
+    },
+    {
+      "name": "基礎學術英文",
+      "day": "Wednesday",
+      "day_zh": "星期三",
+      "periods": [3, 4],
+      "start_time": "10:10",
+      "end_time": "12:00",
+      "location": "修齊大樓26302"
+    },
+    {
+      "name": "運動經濟學",
+      "day": "Wednesday",
+      "day_zh": "星期三",
+      "periods": [5, 6],
+      "start_time": "13:10",
+      "end_time": "15:00",
+      "location": "雲平大樓27103（視聽教室）"
+    },
+    {
+      "name": "變態心理學",
+      "day": "Thursday",
+      "day_zh": "星期四",
+      "periods": [2, 3, 4],
+      "start_time": "09:00",
+      "end_time": "12:00",
+      "location": "社科院大樓階梯教室－心理"
+    },
+    {
+      "name": "人工智慧導論",
+      "day": "Thursday",
+      "day_zh": "星期四",
+      "periods": [5, 6, 7],
+      "start_time": "13:10",
+      "end_time": "16:10",
+      "location": "資訊系館4264"
+    },
+    {
+      "name": "分散式系統",
+      "day": "Friday",
+      "day_zh": "星期五",
+      "periods": [2, 3, 4],
+      "start_time": "09:00",
+      "end_time": "12:00",
+      "location": "資訊系館4261"
+    },
+    {
+      "name": "全民國防教育軍事訓練－全民國防",
+      "day": "Friday",
+      "day_zh": "星期五",
+      "periods": [7, 8],
+      "start_time": "15:20",
+      "end_time": "17:10",
+      "location": "軍訓館6021"
+    }
+  ]
+}
