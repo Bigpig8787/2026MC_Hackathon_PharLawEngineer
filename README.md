@@ -89,7 +89,7 @@ Google 的實際路線，介面會標明這次的時間是估算還是實際路�
     但只涵蓋校內地點，而且偏樂觀（圖書館→資訊系館估 4 分，實際路線是 6 分）。
   - `google`：Google Routes API，真實路網與大眾運輸班次，起訖點可以是任意地址，
     因此校外住家也算得出來。需要 `GOOGLE_MAPS_API_KEY` 且**會計費**。
-    金鑰缺失或 API 失敗時會自動退回 `estimate`，並在 `fallback_reason` 說明原因。
+    金鑰缺失或 API 失敗時會自動退回 `estimate`，並在 `fallback_reason` 說明原因
 
   上層一律呼叫 `tools/travel_time.py` 的 `get_travel_time`，不必知道來源是哪個；
   回傳的 `is_estimate` 用來決定介面要不要寫「約」。
