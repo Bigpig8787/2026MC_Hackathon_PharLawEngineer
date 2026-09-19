@@ -244,3 +244,28 @@ def test_replan_failure_is_reported_with_a_400(client, monkeypatch):
     monkeypatch.setattr(server, "replan", lambda *a, **k: {"status": "no_class"})
     r = client.get("/api/replan", params={"mode": "walking", "origin": "成大圖書館"})
     assert r.status_code == 400
+
+
+# ---- 讀錯門牌時：使用者自己輸入或點選確認 ----
+
+def test_here_endpoint_passes_the_code_and_target(client, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(server, "confirm_room", lambda code, target: seen.update(
+        code=code, target=target) or {"status": "ok", "here": {"room_code": code}})
+    r = client.get("/api/here", params={"code": "A1302", "target": "A1306"})
+    assert r.status_code == 200 and r.json()["here"]["room_code"] == "A1302"
+    assert seen == {"code": "A1302", "target": "A1306"}
+
+
+def test_here_endpoint_reports_an_unusable_code_as_400(client, monkeypatch):
+    monkeypatch.setattr(server, "confirm_room",
+                        lambda code, target: {"status": "error", "error_message": "請輸入教室代碼"})
+    assert client.get("/api/here", params={"code": " "}).status_code == 400
+
+
+def test_here_endpoint_keeps_not_recognized_as_a_normal_answer(client, monkeypatch):
+    # 查不到但有相近的建議，是正常的回答（畫面要顯示建議），不是錯誤
+    monkeypatch.setattr(server, "confirm_room", lambda code, target: {
+        "status": "not_recognized", "suggestions": [{"room_code": "A1302"}]})
+    r = client.get("/api/here", params={"code": "A1301"})
+    assert r.status_code == 200 and r.json()["suggestions"][0]["room_code"] == "A1302"

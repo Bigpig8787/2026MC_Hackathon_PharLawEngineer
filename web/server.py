@@ -43,7 +43,7 @@ from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.attendance import check_attendance
 from commute_agent.skills.late_notice import build_late_notice, build_leave_notice
 from commute_agent.skills.replan import replan
-from commute_agent.skills.scan_room_sign import scan_room_sign
+from commute_agent.skills.scan_room_sign import confirm_room, scan_room_sign
 from commute_agent.tools.rain_observation import get_rain_now
 from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.departure_plan import plan_departure
@@ -392,6 +392,16 @@ def late_notice(course: str, starts_at: str, late: int = 1, place: str = "",
     except ValueError:
         return JSONResponse({"error": f"無法解析的時間：{starts_at!r}"}, status_code=400)
     return JSONResponse(notice)
+
+
+@app.get("/api/here")
+def here(code: str, target: str = "") -> JSONResponse:
+    """使用者自己輸入或點選確認教室代碼：不經過 Gemini，只回成大 GIS 驗證。
+
+    拍門牌讀錯字時，讓使用者點選相近的教室，或直接輸入看到的代碼。
+    """
+    result = confirm_room(code, target)
+    return JSONResponse(result, status_code=200 if result["status"] != "error" else 400)
 
 
 @app.post("/api/scan_room")

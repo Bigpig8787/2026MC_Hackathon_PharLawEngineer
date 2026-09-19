@@ -585,11 +585,22 @@ const CONFIDENCE_ZH = { high: "高", medium: "中", low: "低" };
 
 function renderSignResult(r) {
   if (r.status === "error" || r.error) return `<p class="err">${esc(r.error_message || r.error)}</p>`;
-  if (r.status === "not_recognized") return `<p class="note warn">${esc(r.note)}</p>`;
+  if (r.status === "not_recognized") {
+    // 讀出的代碼在成大查不到，多半是讀錯了一個字。列出「只差一個字」的教室讓使用者點選確認；
+    // 不自動採用，因為差一個字的教室可能有好幾間，選錯會被帶去別間
+    const suggestions = (r.suggestions || []).map(s =>
+      `<button type="button" class="ghost" data-here="${esc(s.room_code)}">${esc(s.room_code)}${
+        s.room_name ? " " + esc(s.room_name) : ""}・${esc(s.building_name)}${
+        s.floor ? " " + esc(s.floor) : ""}</button>`).join(" ");
+    return `<p class="note warn">${esc(r.note)}</p>${suggestions ? `<p>${suggestions}</p>` : ""}`;
+  }
   const h = r.here;
+  const basis = r.sign.confidence === "user"
+    ? "代碼由你輸入或確認，並已由成大 GIS 驗證"
+    : `辨識信心：${CONFIDENCE_ZH[r.sign.confidence] || "低"}・代碼已由成大 GIS 驗證`;
   return `<div class="trip"><b>你在 ${esc(h.building_name)}${h.floor ? " " + esc(h.floor) : ""}（${esc(h.room_code)}）</b>
     ${r.relation ? `<span>${esc(r.relation.text)}</span>` : ""}
-    <span>辨識信心：${esc(CONFIDENCE_ZH[r.sign.confidence] || "低")}・代碼已由成大 GIS 驗證</span></div>`;
+    <span>${esc(basis)}</span></div>`;
 }
 
 // 獨立的一張卡片，放在「下一堂課」正下方。原本藏在「教室位置」卡片裡，
@@ -597,6 +608,8 @@ function renderSignResult(r) {
 function renderScan() {
   const box = $("scanCard");
   const next = lastData && lastData.next_class;
+  // 這張卡片每次載入都會重畫；使用者正在輸入的代碼要保留，不能被沖掉
+  const typed = (document.getElementById("hereInput") || {}).value || "";
   const result = signBusy ? '<p class="spinner">正在辨識照片…</p>'
     : (signData ? renderSignResult(signData) : "");
   box.innerHTML = `<p class="label">拍門牌，確認我在哪</p>
@@ -605,23 +618,45 @@ function renderScan() {
       ${next ? `以及「${esc(next.name)}」的教室要往哪一層走` : "在幾樓"}。</p>
     <label class="btn" for="signInput" style="cursor:pointer">📷 拍照或選擇門牌照片</label>
     <input type="file" id="signInput" accept="image/png,image/jpeg,image/webp" capture="environment" hidden>
+    <form id="hereForm" class="origin" style="margin:14px 0 0">
+      <label for="hereInput">或直接輸入你看到的代碼</label>
+      <input id="hereInput" type="text" autocomplete="off" placeholder="例如：A1302、4264">
+      <button type="submit">確認</button>
+    </form>
     ${result}`;
+  $("hereInput").value = typed;
+}
+
+// 目標教室：優先用下一堂課的教室代碼，沒有才退回教室位置卡片查到的那間
+function targetRoom() {
+  const next = lastData && lastData.next_class;
+  return (next && next.room_query) || (classroomData && classroomData.room_code) || "";
+}
+
+function runSignRequest(request) {
+  signBusy = true; signData = null; renderScan();
+  request
+    .then(r => r.json()).then(r => { signData = r; })
+    .catch(e => { signData = { error: e.message }; })
+    .finally(() => { signBusy = false; renderScan(); });
 }
 
 function scanSign(file) {
   if (!file) return;
-  signBusy = true; signData = null; renderScan();
   const form = new FormData();
   form.append("file", file);
-  // 目標教室：優先用下一堂課的教室代碼，沒有才退回教室位置卡片查到的那間
-  const next = lastData && lastData.next_class;
-  const target = (next && next.room_query) || (classroomData && classroomData.room_code) || "";
   const params = new URLSearchParams();
-  if (target) params.set("target", target);
-  fetch(`/api/scan_room?${params}`, { method: "POST", body: form })
-    .then(r => r.json()).then(r => { signData = r; })
-    .catch(e => { signData = { error: e.message }; })
-    .finally(() => { signBusy = false; renderScan(); });
+  if (targetRoom()) params.set("target", targetRoom());
+  runSignRequest(fetch(`/api/scan_room?${params}`, { method: "POST", body: form }));
+}
+
+// 使用者自己輸入或點選確認的代碼：不經過 Gemini，只回成大 GIS 驗證
+function confirmHere(code) {
+  code = (code || "").trim();
+  if (!code) return;
+  const params = new URLSearchParams({ code });
+  if (targetRoom()) params.set("target", targetRoom());
+  runSignRequest(fetch(`/api/here?${params}`));
 }
 
 // 判斷會遲到時給的按鈕：產生給老師的通知信「草稿」，使用者確認後自己寄
@@ -1578,6 +1613,19 @@ $("lateCard").addEventListener("click", async e => {
 
 $("scanCard").addEventListener("change", e => {
   if (e.target.id === "signInput") scanSign(e.target.files[0]);
+});
+
+// 點選「相近的教室」建議
+$("scanCard").addEventListener("click", e => {
+  const btn = e.target.closest("[data-here]");
+  if (btn) confirmHere(btn.dataset.here);
+});
+
+// 手動輸入代碼
+$("scanCard").addEventListener("submit", e => {
+  if (e.target.id !== "hereForm") return;
+  e.preventDefault();
+  confirmHere($("hereInput").value);
 });
 
 $("prefForm").addEventListener("submit", e => {

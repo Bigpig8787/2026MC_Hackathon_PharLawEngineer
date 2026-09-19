@@ -161,6 +161,88 @@ def _verified(code: str) -> dict | None:
             "floor": room["floor"] or None}
 
 
+MAX_SUGGESTIONS = 5
+
+# 代碼短於這個長度就不找相近的：兩三個字的片段會比到一大堆不相干的教室
+MIN_CODE_LENGTH_FOR_SUGGESTIONS = 4
+
+
+def edit_distance(a: str, b: str) -> int:
+    """兩個字串差幾個字（一次可增、刪、改一個字）。純函式。"""
+    previous = list(range(len(b) + 1))
+    for i, char_a in enumerate(a, 1):
+        current = [i]
+        for j, char_b in enumerate(b, 1):
+            current.append(min(previous[j] + 1, current[j - 1] + 1,
+                               previous[j - 1] + (char_a != char_b)))
+        previous = current
+    return previous[-1]
+
+
+def similar_rooms(codes: list[str], lookup=None, limit: int = MAX_SUGGESTIONS) -> list[dict]:
+    """讀到的代碼在 GIS 查不到時，找 GIS 裡「只差一個字」的教室，給使用者確認。
+
+    為什麼需要：模型讀門牌會把 2 讀成 1 或 8，讀出的 A1301 在 GIS 根本不存在，
+    但差一個字的 A1302 就是那間演講廳。驗證機制拒絕未經確認的代碼是對的，
+    只回「查不到」卻讓人走進死路。
+
+    這裡只「建議」，不自動採用：差一個字的教室可能有好幾間，選錯就把人帶去別間，
+    所以由使用者點選確認。GIS 的搜尋是子字串比對，所以用「去掉最後一個字」
+    與「去掉第一個字」兩種查法（最常見的讀錯位置就是末位數字）。
+
+    Returns:
+        清單，每筆含 room_code、room_name、building_id、building_name、floor，
+        以及 resembles（它跟哪幾個讀到的代碼相近）；相近越多的排越前面。
+    """
+    lookup = lookup or lookup_room
+    found: dict[tuple, dict] = {}
+    for code in codes:
+        text = code.strip().upper()
+        if len(text) < MIN_CODE_LENGTH_FOR_SUGGESTIONS:
+            continue
+        for query in dict.fromkeys((text[:-1], text[1:])):
+            result = lookup(query)
+            if result.get("status") != "ok":
+                continue
+            for row in result["candidates"]:
+                room_code = (row["room_code"] or "").strip().upper()
+                if not room_code or edit_distance(room_code, text) != 1:
+                    continue
+                entry = found.setdefault((row["building_id"], room_code), {
+                    "room_code": room_code, "room_name": row["room_name"],
+                    "building_id": row["building_id"], "building_name": row["building_name"],
+                    "floor": row["floor"] or None, "resembles": []})
+                if code not in entry["resembles"]:
+                    entry["resembles"].append(code)
+    ranked = sorted(found.values(), key=lambda e: (-len(e["resembles"]), e["room_code"]))
+    return ranked[:limit]
+
+
+def confirm_room(code: str, target_room: str = "") -> dict:
+    """使用者自己輸入或點選確認的教室代碼：一樣回 GIS 驗證，再說明目標教室的相對位置。
+
+    不經過模型：代碼是使用者給的，只需要驗證它在成大確實存在。
+    """
+    text = (code or "").strip()
+    if not text:
+        return {"status": "error", "error_message": "請輸入教室代碼", "sign": None,
+                "here": None, "target": None, "relation": None}
+
+    sign = {"status": "ok", "room_codes": [text], "building_text": "", "floor_text": "",
+            "confidence": "user", "note": "由你輸入或確認"}
+    here = _verified(text)
+    target = _verified(target_room.strip()) if (target_room or "").strip() else None
+    if here is None:
+        suggestions = similar_rooms([text])
+        return {"status": "not_recognized", "sign": sign, "here": None, "target": target,
+                "relation": None, "suggestions": suggestions,
+                "note": f"成大地理資訊系統查不到「{text}」"
+                        + ("，下面是代碼相近的教室，請確認是不是其中一間。" if suggestions
+                           else "，請確認代碼有沒有打錯。")}
+    return {"status": "ok", "sign": sign, "here": here, "target": target,
+            "relation": relate(here, target) if target else None}
+
+
 def scan_room_sign(image_bytes: bytes, mime_type: str, target_room: str = "") -> dict:
     """拍門牌找教室：認出你現在在哪一間，並說明目標教室相對的位置。
 
@@ -186,10 +268,16 @@ def scan_room_sign(image_bytes: bytes, mime_type: str, target_room: str = "") ->
 
     if here is None:
         seen = "、".join(sign["room_codes"]) or "沒有讀到任何代碼"
+        suggestions = similar_rooms(sign["room_codes"])
+        # 讀出來卻查不到，多半是讀錯了一個字：列出相近的教室讓使用者確認，
+        # 不自動採用（差一個字的教室可能有好幾間，選錯會被帶去別間）
+        if suggestions:
+            advice = "可能是讀錯了一個字。下面是代碼相近的教室，請確認是不是其中一間。"
+        else:
+            advice = "請靠近一點、讓門牌填滿畫面再拍一次，或直接輸入你看到的代碼。"
         return {"status": "not_recognized", "sign": sign, "here": None, "target": target,
-                "relation": None,
-                "note": f"照片上讀到：{seen}。成大地理資訊系統查不到對應的教室，"
-                        "請靠近一點、讓門牌填滿畫面再拍一次。"}
+                "relation": None, "suggestions": suggestions,
+                "note": f"照片上讀到：{seen}。成大地理資訊系統查不到這些代碼。{advice}"}
 
     relation = relate(here, target) if target else None
     return {"status": "ok", "sign": sign, "here": here, "target": target,
