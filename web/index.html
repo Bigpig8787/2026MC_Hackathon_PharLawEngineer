@@ -252,6 +252,38 @@
   .simbadge { background: var(--now); color: #fff; padding: 2px 9px;
               border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
 
+  /* 有些元素自己設了 display（例如 flex），會蓋掉瀏覽器內建的 [hidden]，統一補上 */
+  [hidden] { display: none !important; }
+
+  /* 模擬情境與自動調整 */
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip { font: inherit; font-size: 0.8125rem; cursor: pointer; padding: 6px 14px;
+          border-radius: 999px; border: 1px solid var(--border);
+          background: var(--surface); color: var(--text); }
+  .chip:hover { border-color: var(--now); }
+  .chip[aria-pressed="true"] { background: var(--now); border-color: var(--now);
+                               color: #fff; font-weight: 600; }
+  .chip.clear { border-style: dashed; color: var(--muted); }
+  .autobar { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center;
+             margin: -6px 0 16px; font-size: 0.875rem; }
+  .autobar label { cursor: pointer; font-weight: 600; }
+  .autobar input { accent-color: var(--accent); margin-right: 6px; }
+  .adj { display: grid; grid-template-columns: 3.25rem 1fr; gap: 10px; padding: 10px 0;
+         border-top: 1px solid var(--border); font-size: 0.9375rem; }
+  .adj-time { color: var(--muted); font-size: 0.8125rem; font-variant-numeric: tabular-nums; }
+  .adj.switch { border-left: 3px solid var(--accent); padding-left: 10px; }
+  .adj.warn { border-left: 3px solid #b91c1c; padding-left: 10px; }
+  .adj .meta { color: var(--muted); font-size: 0.8125rem; }
+  .linkbtn { display: inline-block; text-decoration: none; margin-left: 8px; }
+
+  /* 遲到通知信草稿、拍門牌 */
+  .draft label { display: block; font-size: 0.8125rem; color: var(--muted); margin: 12px 0 4px; }
+  .draft input, .draft textarea { width: 100%; font: inherit; font-size: 0.9375rem;
+    padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px;
+    background: var(--surface); color: var(--text); }
+  .draft textarea { min-height: 11rem; line-height: 1.6; }
+  .scan { margin-top: 16px; }
+
   @media (max-width: 640px) {
     .wrap { padding: 20px 16px 48px; }
     .block b { font-size: 0.6875rem; }
@@ -289,6 +321,10 @@
       <button type="button" class="ghost" id="backToNow">回到現在</button>
       <button type="button" class="ghost" id="askNotify">開啟桌面通知</button>
     </div>
+    <div id="scenarioBox" hidden>
+      <div class="chips" id="scenarioChips"></div>
+      <p class="note" id="scenarioNote"></p>
+    </div>
     <p class="note" id="demoNote">模擬時間只是換一個時間點去問同一套系統，
       教室、車位查的仍然是真實 API。</p>
   </section>
@@ -300,7 +336,21 @@
     <button type="button" id="resetOrigin">用預設</button>
   </form>
 
+  <form class="origin" id="prefForm">
+    <label for="prefInput">通勤偏好</label>
+    <input id="prefInput" type="text" maxlength="300" autocomplete="off"
+           placeholder="例如：我怕熱，不想在太陽下走超過 15 分鐘">
+    <button type="submit">儲存並重新詢問</button>
+  </form>
+
   <div class="modes" id="modes"></div>
+
+  <div class="autobar" id="autoBar" hidden>
+    <label><input type="checkbox" id="autoMode">自動調整交通方式</label>
+    <span class="note" id="autoHint">環境變了（下雨、沒車、來不及），會自己換並記下原因</span>
+  </div>
+
+  <section class="card" id="adjust" hidden></section>
 
   <section class="card" id="advice">
     <p class="label">AI 建議</p>
@@ -308,6 +358,8 @@
   </section>
 
   <section class="card" id="hero"><p class="sub">查詢中…</p></section>
+  <section class="card" id="lateCard" hidden></section>
+  <section class="card" id="scanCard" hidden></section>
   <section class="card" id="classroom" hidden></section>
   <section class="card" id="modeinfo" hidden></section>
   <section class="card" id="parking" hidden></section>
@@ -352,6 +404,7 @@ const TRANSITION_VERDICT = {
 };
 
 function renderAdvice(r) {
+  lastAdvice = r;
   const box = $("advice");
   if (r.error || r.status !== "ok") {
     box.innerHTML = `<p class="label">AI 建議</p>
@@ -375,30 +428,46 @@ function renderAdvice(r) {
   box.innerHTML = `<p class="label">AI 建議${tag}</p>
     <p class="advice-pick">${esc(chosen ? chosen.label : r.chosen_mode || "—")}</p>
     <p class="advice-why">${esc(r.reason)}</p>
+    ${r.source === "gemini" && pref ? `<p class="note">已參考你的偏好：${esc(pref)}</p>` : ""}
     ${(r.warnings || []).map(w => `<p class="note warn">⚠ ${esc(w)}</p>`).join("")}
     <p class="label" style="margin-top:18px">四個方案</p>${rows}
+    ${adviceStale ? '<p class="note warn">⚠ 模擬時間、情境或偏好已改變，這份建議可能已過期，可按「重新詢問」更新。</p>' : ""}
     <p><button type="button" class="btn" id="askAdvice"
        style="margin-top:14px">重新詢問</button></p>`;
 }
 
 // 已經問過 Gemini 的情境。課、出發地或車種沒換就不重問，
 // 免得每次切換交通方式或每輪輪詢都燒掉一次額度
-let adviceSig = "";
+let adviceSig = "", adviceCtx = "", lastAdvice = null, adviceStale = false;
+
+// 模擬時間、模擬情境與偏好也會影響建議，但不因此自動重問（每次都是一次 Gemini 額度），
+// 只標示「可能已過期」，由使用者決定要不要重新詢問
+function adviceContext() {
+  return [simNow, [...scenarios].sort().join(","), pref].join("|");
+}
 
 function autoLoadAdvice(data) {
   const next = data.next_class;
   if (!next) { adviceSig = ""; return; }
   const sig = [next.starts_at, next.location, data.origin, data.vehicle_type].join("|");
-  if (sig === adviceSig) return;
+  if (sig === adviceSig) {
+    if (adviceContext() !== adviceCtx && lastAdvice) { adviceStale = true; renderAdvice(lastAdvice); }
+    return;
+  }
   adviceSig = sig;
   loadAdvice();
 }
 
 function loadAdvice() {
+  adviceStale = false;
+  adviceCtx = adviceContext();
   $("advice").innerHTML = `<p class="label">AI 建議</p>
     <p class="spinner">正在比較四種交通方式並請 Gemini 判斷…（約 15 秒）</p>`;
   const params = new URLSearchParams({ vehicle });
   if (origin) params.set("origin", origin);
+  if (simNow) params.set("now", simNow);
+  if (scenarios.size) params.set("scenario", [...scenarios].join(","));
+  if (pref) params.set("preference", pref);
   fetch(`/api/recommend?${params}`)
     .then(r => r.json()).then(renderAdvice)
     .catch(e => renderAdvice({ error: e.message }));
@@ -497,6 +566,7 @@ function loadClassroom(data) {
   classroomSig = sig;
   classroomData = null;
   planOverride = null;
+  signData = null;
   $("classroom").hidden = false;
   $("classroom").innerHTML = `<p class="label">教室位置</p>
     <p class="spinner">正在查成大地理資訊系統…</p>`;
@@ -507,6 +577,65 @@ function loadClassroom(data) {
     .then(r => r.json())
     .then(r => { classroomData = r; renderClassroom(); })
     .catch(e => { classroomData = { error: e.message }; renderClassroom(); });
+}
+
+/* ---------- 拍門牌，確認我在哪 ---------- */
+
+const CONFIDENCE_ZH = { high: "高", medium: "中", low: "低" };
+
+function renderSignResult(r) {
+  if (r.status === "error" || r.error) return `<p class="err">${esc(r.error_message || r.error)}</p>`;
+  if (r.status === "not_recognized") return `<p class="note warn">${esc(r.note)}</p>`;
+  const h = r.here;
+  return `<div class="trip"><b>你在 ${esc(h.building_name)}${h.floor ? " " + esc(h.floor) : ""}（${esc(h.room_code)}）</b>
+    ${r.relation ? `<span>${esc(r.relation.text)}</span>` : ""}
+    <span>辨識信心：${esc(CONFIDENCE_ZH[r.sign.confidence] || "低")}・代碼已由成大 GIS 驗證</span></div>`;
+}
+
+// 獨立的一張卡片，放在「下一堂課」正下方。原本藏在「教室位置」卡片裡，
+// 而那張卡片在教室查詢失敗或沒有下一堂課時根本不會出現，按鈕就跟著消失、找不到
+function renderScan() {
+  const box = $("scanCard");
+  const next = lastData && lastData.next_class;
+  const result = signBusy ? '<p class="spinner">正在辨識照片…</p>'
+    : (signData ? renderSignResult(signData) : "");
+  box.innerHTML = `<p class="label">拍門牌，確認我在哪</p>
+    <p class="note" style="margin:0 0 12px">到了大樓卻找不到教室？拍一張教室門牌或樓層指示牌，
+      Gemini 讀出上面的字，再由成大地理資訊系統驗證，告訴你現在在哪一間，
+      ${next ? `以及「${esc(next.name)}」的教室要往哪一層走` : "在幾樓"}。</p>
+    <label class="btn" for="signInput" style="cursor:pointer">📷 拍照或選擇門牌照片</label>
+    <input type="file" id="signInput" accept="image/png,image/jpeg,image/webp" capture="environment" hidden>
+    ${result}`;
+}
+
+function scanSign(file) {
+  if (!file) return;
+  signBusy = true; signData = null; renderScan();
+  const form = new FormData();
+  form.append("file", file);
+  // 目標教室：優先用下一堂課的教室代碼，沒有才退回教室位置卡片查到的那間
+  const next = lastData && lastData.next_class;
+  const target = (next && next.room_query) || (classroomData && classroomData.room_code) || "";
+  const params = new URLSearchParams();
+  if (target) params.set("target", target);
+  fetch(`/api/scan_room?${params}`, { method: "POST", body: form })
+    .then(r => r.json()).then(r => { signData = r; })
+    .catch(e => { signData = { error: e.message }; })
+    .finally(() => { signBusy = false; renderScan(); });
+}
+
+// 判斷會遲到時給的按鈕：產生給老師的通知信「草稿」，使用者確認後自己寄
+// 通知信草稿按鈕。kind 是 late（遲到）或 leave（請假）。reason 通常留空，
+// 由使用者在草稿裡自己填——真正的原因我們不知道，不能替他編
+function noticeButton(course, startsAt, minutes, place, kind = "late", reason = "", label = "") {
+  const text = label || (kind === "leave" ? "產生請假通知信草稿" : "產生遲到通知信草稿");
+  return `<button type="button" class="ghost" data-late="1" data-kind="${esc(kind)}"
+    data-course="${esc(course)}" data-starts="${esc(startsAt)}" data-min="${esc(minutes)}"
+    data-place="${esc(place || "")}" data-reason="${esc(reason)}">${esc(text)}</button>`;
+}
+
+function lateButton(course, startsAt, minutes, place) {
+  return `<p>${noticeButton(course, startsAt, minutes, place)}</p>`;
 }
 
 // 課間轉場：正在上課或剛下課、下一堂很快開始時，從上一堂教室走過去來不來得及。
@@ -525,7 +654,8 @@ function renderTransition(data) {
     <span>${esc(t.from.place)} → ${esc(t.to.place)}</span>
     <span>下課後 ${t.gap_minutes} 分鐘・${move}＋緩衝 ${t.buffer_minutes} 分（估算）</span>
   </div>
-  <p class="note${t.verdict === "late" ? " warn" : ""}">${esc(t.advice)}</p>`;
+  <p class="note${t.verdict === "late" ? " warn" : ""}">${esc(t.advice)}</p>
+  ${t.verdict === "late" ? lateButton(t.to.course, t.to.starts_at, t.late_by, t.to.place) : ""}`;
 }
 
 function renderTrip(data) {
@@ -548,7 +678,9 @@ function renderTrip(data) {
       ${w.rain_probability === null ? "無資料" : w.rain_probability + "%"}・體感
       ${esc(w.apparent_temperature || "—")}°C</span>` : ""}
   </div>
-  ${d.weather_advice ? `<p class="note warn">${esc(d.weather_advice)}</p>` : ""}`;
+  ${d.weather_advice ? `<p class="note warn">${esc(d.weather_advice)}</p>` : ""}
+  ${d.verdict === "too_late" ? lateButton(d.course.name, d.class_starts_at,
+      Math.abs(d.minutes_until_departure), d.course.building || d.course.location) : ""}`;
 }
 
 function stationRows(list, key, unit, role) {
@@ -609,6 +741,19 @@ function renderModeInfo(data) {
   const box = document.getElementById("modeinfo");
   const parts = [];
 
+  // 借車站、公車站都要以「出發地」為中心去找。沒填出發地時後端根本不會查，
+  // 畫面上就什麼都沒有，看起來像功能不見了，所以明講要先填出發地
+  if (!data.origin && data.next_class) {
+    if (data.travel_mode === "bicycling") {
+      parts.push('<p class="label">YouBike・附近站點</p>'
+        + '<p class="note">請先在上方「出發地」填入你的位置（例如：成大圖書館），'
+        + '才查得到附近還有車可借的 YouBike 站。</p>');
+    } else if (data.travel_mode === "transit") {
+      parts.push('<p class="label">公車・出發地附近</p>'
+        + '<p class="note">請先在上方「出發地」填入你的位置，才查得到附近站牌的即時到站時間。</p>');
+    }
+  }
+
   if (data.bikes) {
     const b = data.bikes.borrow, r = data.bikes["return"];
     parts.push(`<p class="label">YouBike・出發地借車</p>`);
@@ -659,6 +804,62 @@ function describePlace(next) {
     （${where}），可能對到隔壁棟。</p>`;
 }
 
+/* ---------- 出席檢查：正在上課時，你在不在教室 ---------- */
+
+// 請假、遲到的真正原因我們不知道，草稿裡留成這個佔位，由使用者自己換掉
+const REASON_PLACEHOLDER = "【請填寫原因】";
+
+function geoButton() {
+  return geoPos
+    ? '<button type="button" class="ghost" data-geo="off">改用輸入的地點</button>'
+    : '<button type="button" class="ghost" data-geo="on">📍 用我的目前位置</button>';
+}
+
+function renderAttendance(data) {
+  const cur = data.current_class;
+  if (!cur) return "";
+  const a = data.attendance;
+  const geoNote = geoError ? `<p class="note warn">${esc(geoError)}</p>` : "";
+
+  if (!a || a.status === "no_location") {
+    return `<p class="note">現在正在上課。在上方「出發地」輸入你現在的位置，
+        或按「用我的目前位置」，就能判斷你是不是在教室。位置只用來這一次判斷，不會儲存。</p>
+      <p>${geoButton()}</p>${geoNote}`;
+  }
+  if (a.status !== "ok") {
+    return `<p class="note warn">${esc(a.note || "無法判斷你在不在教室。")}</p>
+      <p>${geoButton()}</p>${geoNote}`;
+  }
+
+  const here = a.here;
+  const source = here.source === "gps"
+    ? "即時位置" + (geoPos ? `，取得於 ${geoPos.at.toTimeString().slice(0, 5)}、精度約 ±${
+        Math.round(geoPos.accuracy)} 公尺` : "")
+    : "你輸入的地點";
+  const timing = `課已開始 ${a.elapsed_minutes} 分・還剩 ${a.remaining_minutes} 分`;
+
+  if (a.at_class) {
+    return `<div class="trip"><b>出席檢查・你在教室附近</b>
+        <span>${esc(here.name)}（${esc(source)}），距教室約 ${a.distance_m} 公尺</span>
+        <span>${timing}</span></div>
+      <p class="note">${esc(a.note)}</p><p>${geoButton()}</p>${geoNote}`;
+  }
+
+  // 不在教室：遲到信與請假信都給，依情況標出建議的那一種
+  const c = a.class, place = c.building || c.location;
+  const lateBtn = noticeButton(c.name, c.starts_at, a.late_by, place, "late", REASON_PLACEHOLDER,
+    "產生遲到通知信草稿" + (a.suggestion === "late" ? "（建議）" : ""));
+  const leaveBtn = noticeButton(c.name, c.starts_at, 0, place, "leave", "",
+    "產生請假通知信草稿" + (a.suggestion === "leave" ? "（建議）" : ""));
+  return `<div class="trip late"><b>出席檢查・你不在上課的教室</b>
+      <span>${esc(here.name)}（${esc(source)}），距教室約 ${a.distance_m} 公尺</span>
+      <span>${timing}・走過去約 ${a.walk_minutes} 分</span></div>
+    <p class="note warn">${esc(a.advice)}</p>
+    <p>${a.suggestion === "leave" ? leaveBtn + " " + lateBtn : lateBtn + " " + leaveBtn}</p>
+    <p>${geoButton()}</p>${geoNote}
+    <p class="note">${esc(a.note)}</p>`;
+}
+
 function renderHero(data) {
   const hero = document.getElementById("hero");
   const cur = data.current_class, next = data.next_class;
@@ -675,6 +876,7 @@ function renderHero(data) {
         <div class="row"><dt>地點</dt><dd>${esc(cur.building_name || cur.location)}
           ${cur.floor ? esc(cur.floor) : ""}</dd></div>
       </dl>`);
+    parts.push(renderAttendance(data));
   }
   if (next) {
     const where = next.building_name || next.location;
@@ -691,7 +893,8 @@ function renderHero(data) {
       </dl>
       ${renderTransition(data)}
       ${renderTrip(data)}
-      <a class="btn" href="${esc(next.route_link)}" target="_blank" rel="noopener">開啟${esc(data.travel_mode_label)}導航</a>`);
+      <a class="btn" href="${esc(next.route_link)}" target="_blank" rel="noopener">開啟${esc(data.travel_mode_label)}導航</a>
+      <a class="ghost linkbtn" href="${esc(next.calendar_url)}" target="_blank" rel="noopener">加到 Google 日曆</a>`);
     parts.push(describePlace(next));
     if (data.using_default_origin) {
       parts.push('<p class="note">未指定所在位置，已使用 .env 中的預設地址作為起點。</p>');
@@ -864,12 +1067,37 @@ function renderParking(data) {
 const $ = id => document.getElementById(id);
 // 一分鐘拉一次就夠：倒數由前端自己跳，不必靠輪詢，也少打成大的系統
 const POLL_MS = 60000;
-const SECTIONS = ["demoCard", "originForm", "modes", "hero", "classroom", "parking", "walk", "gridCard"];
+const SECTIONS = ["demoCard", "originForm", "prefForm", "modes", "hero", "scanCard", "classroom",
+                  "parking", "walk", "gridCard"];
 
 let bikePick = { from: null, to: null }, bikeJourney = null;
 let mode = "walking", vehicle = "機車", origin = "";
 let simNow = "", leadMin = 30;
 let lastData = null, notice = null, pollTimer = null, bannerSig = "", notifiedKey = "";
+
+// 只存在使用者自己的瀏覽器：私密視窗等情況拿不到儲存空間時，當作沒有，不影響其他功能
+const LS = {
+  get(key, fallback) {
+    try { const v = localStorage.getItem(key); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { return fallback; }
+  },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* 略過 */ } },
+};
+
+// 模擬情境：Demo 用來重現「環境突然改變」。只存在這個分頁，每次請求帶給後端，後端不保存
+let scenarios = new Set();
+// 自動調整：開啟後每次載入都檢查目前的交通方式還行不行，不行就自己換並記下原因。
+// knownSoft 是上一輪已經接受的風險，帶回後端，同樣的風險就不必每輪重新比較四種方式
+// 模擬情境按鈕、自動調整開關與調整記錄：功能都在（後端、測試也都在），但操作不夠直觀，
+// 先從畫面上藏起來。要重新打開，把這個旗標改成 true 即可
+const SHOW_ADAPTIVE = false;
+let autoMode = SHOW_ADAPTIVE && LS.get("autoMode", false), knownSoft = [], skipReplan = false;
+let adjustLog = LS.get("adjustLog", []), autoStatus = "";
+let pref = LS.get("commutePref", "");
+let signData = null, signBusy = false;
+// 即時位置（使用者按「用我的目前位置」才取得）。只放在記憶體，不存進 localStorage
+let geoPos = null, geoError = "";
+$("prefInput").value = pref;
 
 // 模擬時間下的「現在」是凍結的，倒數不該繼續往前跑
 function effectiveNow() {
@@ -912,6 +1140,7 @@ function renderUpload(data) {
   } else {
     box.innerHTML = `<div class="srcline">
       <span class="grow">課表來源：${esc(data.schedule_source || "未記錄")}・共 ${data.courses.length} 堂</span>
+      <a class="ghost" href="/api/calendar.ics" style="text-decoration:none">匯出課表 (.ics)</a>
       <label class="ghost" for="fileInput" style="cursor:pointer">重新上傳</label>
       <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp">
       <button type="button" class="ghost" id="clearSchedule">清除課表</button>
@@ -1052,6 +1281,12 @@ function load() {
   const params = new URLSearchParams({ mode, vehicle });
   if (origin) params.set("origin", origin);
   if (simNow) params.set("now", simNow);
+  if (scenarios.size) params.set("scenario", [...scenarios].join(","));
+  if (geoPos) {
+    params.set("lat", geoPos.lat);
+    params.set("lon", geoPos.lon);
+    params.set("accuracy", Math.round(geoPos.accuracy || 0));
+  }
 
   fetch(`/api/state?${params}`)
     .then(r => r.json())
@@ -1065,15 +1300,23 @@ function load() {
       $("clock").innerHTML =
         esc(now.toLocaleString("zh-TW", { dateStyle: "full", timeStyle: "short" }))
         + (data.simulated ? ' <span class="simbadge">模擬時間</span>' : "")
+        + ((data.scenarios && data.scenarios.active.length)
+            ? ' <span class="simbadge">模擬情境</span>' : "")
         + `・出發地 ${esc(data.origin || "目前位置")}`
-        + (data.using_default_origin ? "（預設）" : "");
+        + (data.using_default_origin ? "（預設）" : "")
+        + rainText(data);
 
       renderUpload(data);
       SECTIONS.forEach(id => { const el = $(id); if (el) el.hidden = !data.has_schedule; });
+      if (SHOW_ADAPTIVE) {
+        $("scenarioBox").hidden = false;
+        $("autoBar").hidden = !data.has_schedule;
+      }
       if (!data.has_schedule) {
         $("banner").className = "banner";
         bannerSig = "";
         if (data.error) $("uploadCard").innerHTML += `<p class="err">${esc(data.error)}</p>`;
+        renderAdjust();
         return;
       }
 
@@ -1081,8 +1324,11 @@ function load() {
       $("leadSelect").value = String(leadMin);
       $("simTime").value = simNow || toLocalInput(now);
       renderModes(data.modes, data.travel_mode, data.vehicle_type);
+      renderScenarioChips(data);
+      $("autoMode").checked = autoMode;
       renderHero(data);
       loadClassroom(data);
+      renderScan();
       autoLoadAdvice(data);
       renderModeInfo(data);
       renderParking(data);
@@ -1091,17 +1337,260 @@ function load() {
       bannerSig = "";
       renderBanner();
       schedulePoll();
+      maybeReplan();
     })
     .catch(e => {
       $("hero").innerHTML = `<p class="err">無法連線後端：${esc(e.message)}</p>`;
     });
 }
 
+/* ---------- 模擬情境、自動調整與調整記錄 ---------- */
+
+// 雨量站的即時讀數（實測，不是預報）。模擬情境下會標示，免得把覆寫值當成真的
+function rainText(data) {
+  const r = data.rain_now;
+  if (!r || r.status !== "ok" || !r.station) return "";
+  const mm = r.past10min_mm === null || r.past10min_mm === undefined ? "—" : r.past10min_mm;
+  const state = r.is_raining ? "正在下雨" : (r.level === "none" ? "無雨" : "剛下過雨");
+  return `・${esc(r.station.name)}雨量站 ${state}（10 分鐘 ${mm} mm）`
+    + (r.simulated ? ' <span class="simbadge">模擬</span>' : "");
+}
+
+function scenarioShortName(options, key) {
+  return (options[key] || key).split("：")[0];
+}
+
+function renderScenarioChips(data) {
+  const options = (data.scenarios && data.scenarios.options) || {};
+  $("scenarioChips").innerHTML = Object.entries(options).map(([key, label]) =>
+    `<button type="button" class="chip" data-scenario="${esc(key)}" title="${esc(label)}"
+      aria-pressed="${scenarios.has(key)}">${esc(scenarioShortName(options, key))}</button>`).join("")
+    + (scenarios.size ? '<button type="button" class="chip clear" data-scenario="">清除模擬</button>' : "");
+  $("scenarioNote").textContent = scenarios.size
+    ? "模擬中：" + [...scenarios].map(k => options[k] || k).join("；")
+      + "。只有被指定的那項資料被換掉，其餘仍是真實查詢，畫面會標示「模擬」。"
+    : "按下情境可重現「環境突然改變」；開啟「自動調整交通方式」後，看系統會不會自己換。";
+}
+
+function pushAdjust(entry) {
+  if (adjustLog.length && adjustLog[0].text === entry.text) return;   // 同一句話不連續重複記
+  adjustLog = [entry, ...adjustLog].slice(0, 30);
+  LS.set("adjustLog", adjustLog);
+}
+
+function renderAdjust() {
+  const box = $("adjust");
+  const show = SHOW_ADAPTIVE && lastData && lastData.has_schedule && (autoMode || adjustLog.length);
+  box.hidden = !show;
+  if (!show) return;
+  const items = adjustLog.map(e => `<div class="adj ${esc(e.kind)}">
+    <div class="adj-time">${esc(e.time)}</div>
+    <div><div>${esc(e.text)}</div>${e.sim ? `<div class="meta">模擬情境：${esc(e.sim)}</div>` : ""}</div>
+  </div>`).join("");
+  box.innerHTML = `<p class="label">調整記錄${autoMode ? '<span class="src">自動監控中</span>' : ""}</p>
+    ${autoStatus ? `<p class="note">${esc(autoStatus)}</p>` : ""}
+    ${items || '<p class="note">還沒有調整。環境改變、原本的交通方式行不通時，系統換了會記在這裡。</p>'}
+    ${adjustLog.length ? '<p><button type="button" class="ghost" id="clearAdjust">清除記錄</button></p>' : ""}`;
+}
+
+// 每次載入完成後，檢查目前的交通方式還行不行；不行就換、記下原因。
+// 上一輪的方式與已接受的風險都由這裡帶給後端，後端不保存任何狀態
+// 每次檢查都編號。回應回來時編號已經變了，代表使用者在等待期間又改了條件（切換情境、
+// 換交通方式…），舊的回應是針對過期的條件算的，不能套用；新的檢查也不能因為舊的
+// 還沒回來就被擋掉，否則使用者剛按下的情境完全沒有反應
+let replanSeq = 0;
+
+function maybeReplan() {
+  renderAdjust();
+  if (!autoMode || !lastData || !lastData.next_class || !lastData.origin) return;
+  if (skipReplan) { skipReplan = false; return; }   // 剛換完的那次重新載入，不必馬上再檢查
+
+  const seq = ++replanSeq;
+  autoStatus = "檢查目前的交通方式中…";
+  renderAdjust();
+  const params = new URLSearchParams({ mode, vehicle });
+  if (origin) params.set("origin", origin);
+  if (simNow) params.set("now", simNow);
+  if (scenarios.size) params.set("scenario", [...scenarios].join(","));
+  if (knownSoft.length) params.set("known_soft", knownSoft.join(","));
+
+  fetch(`/api/replan?${params}`)
+    .then(r => r.json())
+    .then(r => {
+      if (seq !== replanSeq) return;
+      if (!r.action) {
+        autoStatus = "檢查失敗：" + (r.error || r.error_message || r.note || "原因不明");
+        renderAdjust();
+        return;
+      }
+      knownSoft = r.soft_codes || [];
+      const stamp = (r.at || "").slice(11, 16);
+      const options = (lastData.scenarios && lastData.scenarios.options) || {};
+      const sim = (r.simulated_scenarios || []).map(k => scenarioShortName(options, k)).join("、");
+      autoStatus = `${stamp} 已檢查（${r.checked === "quick" ? "只查目前這一種" : "比較了四種方式"}）：${r.summary}`;
+
+      if (r.action === "switch" && r.mode && r.mode !== mode) {
+        pushAdjust({ time: stamp, text: r.summary, kind: "switch", sim });
+        mode = r.mode;
+        bikePick = { from: null, to: null }; bikeJourney = null;
+        skipReplan = true;
+        load();
+        return;
+      }
+      if (r.action === "no_option") pushAdjust({ time: stamp, text: r.summary, kind: "warn", sim });
+      renderAdjust();
+    })
+    .catch(e => {
+      if (seq !== replanSeq) return;
+      autoStatus = "檢查失敗：" + e.message;
+      renderAdjust();
+    });
+}
+
+/* ---------- 遲到通知信草稿 ---------- */
+
+function mailtoHref() {
+  const addr = $("lateTo").value.split(",").map(s => s.trim()).filter(Boolean)
+    .map(s => encodeURIComponent(s).replace(/%40/g, "@")).join(",");
+  return `mailto:${addr}?subject=${encodeURIComponent($("lateSubject").value)}`
+    + `&body=${encodeURIComponent($("lateBody").value.replace(/\n/g, "\r\n"))}`;
+}
+
+function openLateDraft(d) {
+  const box = $("lateCard");
+  const title = d.kind === "leave" ? "請假通知信草稿" : "遲到通知信草稿";
+  box.hidden = false;
+  box.innerHTML = `<p class="label">${title}</p><p class="spinner">產生中…</p>`;
+  const params = new URLSearchParams({ course: d.course, starts_at: d.starts, late: d.min,
+                                       place: d.place || "", kind: d.kind || "late" });
+  if (d.reason) params.set("reason", d.reason);
+  fetch(`/api/late_notice?${params}`)
+    .then(r => r.json())
+    .then(n => {
+      if (n.error) {
+        box.innerHTML = `<p class="label">${title}</p><p class="err">${esc(n.error)}</p>`;
+        return;
+      }
+      // 原因與署名都要使用者自己填：草稿裡是佔位，明講要換掉，免得原樣寄出
+      const todo = [n.needs_reason ? `把「${REASON_PLACEHOLDER}」換成實際原因` : "",
+                    n.needs_sender ? "把署名換成你自己的" : ""].filter(Boolean).join("、");
+      box.innerHTML = `<div class="draft"><p class="label">${title}</p>
+        <p class="note warn">${esc(n.note)}</p>
+        <label for="lateTo">收件人（老師或助教的信箱，可留空）</label>
+        <input id="lateTo" type="email" autocomplete="off">
+        <label for="lateSubject">主旨</label>
+        <input id="lateSubject" value="${esc(n.subject)}">
+        <label for="lateBody">內文${todo ? "（請" + esc(todo) + "）" : ""}</label>
+        <textarea id="lateBody">${esc(n.body)}</textarea>
+        <p style="margin-top:14px"><a class="btn" id="lateMailto" href="#">用郵件軟體開啟</a>
+          <button type="button" class="ghost" id="lateCopy" style="margin-left:8px">複製內文</button>
+          <button type="button" class="ghost" id="lateClose" style="margin-left:8px">關閉</button></p></div>`;
+      $("lateMailto").href = mailtoHref();
+      box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    })
+    .catch(e => {
+      box.innerHTML = `<p class="label">${title}</p><p class="err">${esc(e.message)}</p>`;
+    });
+}
+
+async function copyLateBody() {
+  const body = $("lateBody");
+  try { await navigator.clipboard.writeText(body.value); return true; }
+  catch (e) {
+    body.select();
+    try { return document.execCommand("copy"); } catch (e2) { return false; }
+  }
+}
+
 /* ---------- 事件 ---------- */
+
+$("scenarioChips").addEventListener("click", e => {
+  const btn = e.target.closest("[data-scenario]");
+  if (!btn) return;
+  const key = btn.dataset.scenario;
+  if (!key) scenarios.clear();
+  else if (scenarios.has(key)) scenarios.delete(key);
+  else scenarios.add(key);
+  knownSoft = [];
+  load();
+});
+
+$("autoMode").addEventListener("change", e => {
+  autoMode = e.target.checked;
+  LS.set("autoMode", autoMode);
+  knownSoft = [];
+  autoStatus = "";
+  if (autoMode) pushAdjust({ time: new Date().toTimeString().slice(0, 5),
+                             text: "開始自動監控：之後每次更新都會檢查目前的交通方式還行不行。",
+                             kind: "info", sim: "" });
+  load();
+});
+
+$("adjust").addEventListener("click", e => {
+  if (!e.target.closest("#clearAdjust")) return;
+  adjustLog = [];
+  LS.set("adjustLog", adjustLog);
+  renderAdjust();
+});
+
+$("hero").addEventListener("click", e => {
+  const late = e.target.closest("[data-late]");
+  if (late) { openLateDraft(late.dataset); return; }
+
+  const geo = e.target.closest("[data-geo]");
+  if (!geo) return;
+  if (geo.dataset.geo === "off") { geoPos = null; geoError = ""; load(); return; }
+  if (!navigator.geolocation) {
+    geoError = "這個瀏覽器不支援定位，請直接在「出發地」輸入你現在的位置。";
+    renderHero(lastData);
+    return;
+  }
+  geo.textContent = "定位中…";
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      geoPos = { lat: pos.coords.latitude, lon: pos.coords.longitude,
+                 accuracy: pos.coords.accuracy, at: new Date() };
+      geoError = "";
+      load();
+    },
+    err => {
+      geoError = err.code === 1
+        ? "你拒絕了定位權限，無法使用即時位置；也可以直接在「出發地」輸入你現在的位置。"
+        : "無法取得位置：" + err.message;
+      renderHero(lastData);
+    },
+    // maximumAge: 0 = 一定要重新定位。出席檢查要的是「此刻」在哪，
+    // 沿用一分鐘內的快取，會讓人已經走出教室、畫面卻還說他在教室
+    { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
+});
+
+$("lateCard").addEventListener("input", e => {
+  if (["lateTo", "lateSubject", "lateBody"].includes(e.target.id)) $("lateMailto").href = mailtoHref();
+});
+
+$("lateCard").addEventListener("click", async e => {
+  if (e.target.closest("#lateClose")) { $("lateCard").hidden = true; return; }
+  const copy = e.target.closest("#lateCopy");
+  if (!copy) return;
+  copy.textContent = (await copyLateBody()) ? "已複製" : "複製失敗，請手動選取";
+  setTimeout(() => { copy.textContent = "複製內文"; }, 2000);
+});
+
+$("scanCard").addEventListener("change", e => {
+  if (e.target.id === "signInput") scanSign(e.target.files[0]);
+});
+
+$("prefForm").addEventListener("submit", e => {
+  e.preventDefault();
+  pref = $("prefInput").value.trim();
+  LS.set("commutePref", pref);
+  loadAdvice();
+});
 
 $("originForm").addEventListener("submit", e => {
   e.preventDefault();
   origin = $("originInput").value.trim();
+  knownSoft = [];
   bikePick = { from: null, to: null }; bikeJourney = null;
   load();
 });
@@ -1149,7 +1638,7 @@ $("modeinfo").addEventListener("click", e => {
 $("modes").addEventListener("click", e => {
   const btn = e.target.closest("button");
   if (!btn) return;
-  if (btn.dataset.mode) { mode = btn.dataset.mode; bikePick = { from: null, to: null }; bikeJourney = null; }
+  if (btn.dataset.mode) { mode = btn.dataset.mode; bikePick = { from: null, to: null }; bikeJourney = null; knownSoft = []; }
   else if (btn.dataset.veh) vehicle = btn.dataset.veh;
   else return;
   load();
