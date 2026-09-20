@@ -10,10 +10,21 @@ resolved=False，而不是拿附近的地標充數，也不會假裝查過了。
 
 from __future__ import annotations
 
+from commute_agent.tools.google_routes import compute_route
 from commute_agent.tools.ncku_geo import resolve_place
-from commute_agent.tools.road_events import DEFAULT_RADIUS_M, get_road_events
+from commute_agent.tools.road_events import (
+    DEFAULT_RADIUS_M,
+    get_road_events,
+    get_road_events_along_route,
+)
 
 CITY = "Tainan"
+
+
+def _route_point(place: dict | None, query: str):
+    if place and place.get("status") == "ok":
+        return place["lat"], place["lon"]
+    return query
 
 
 def _side(query: str, radius_m: float, resolved_place: dict | None = None) -> dict:
@@ -53,7 +64,8 @@ def _side(query: str, radius_m: float, resolved_place: dict | None = None) -> di
 
 def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_RADIUS_M,
                        *, origin_place: dict | None = None,
-                       destination_place: dict | None = None) -> dict:
+                       destination_place: dict | None = None,
+                       travel_mode: str = "walking") -> dict:
     """檢查起點與目的地周邊 radius_m 公尺內，現在是否有車禍、施工或封閉等路況事件。
 
     適用時機：使用者要出發前，想知道路上會不會不順時使用；也適合在
@@ -75,6 +87,38 @@ def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_
         - has_events: 兩端加總是否有任何事件，方便快速判斷要不要提醒使用者
         - note: 整體說明，例如兩端都查不到座標時會說明原因
     """
+    route = compute_route(
+        _route_point(origin_place, origin),
+        _route_point(destination_place, destination),
+        travel_mode,
+    )
+    route_points = route.get("route_points", []) if route.get("status") == "ok" else []
+    if len(route_points) >= 2:
+        events = get_road_events_along_route(CITY, route_points, radius_m)
+        route_side = {
+            "query": f"{origin} → {destination}",
+            "resolved": events["status"] == "ok",
+            "name": "Google Maps 路線",
+            "events": events.get("events", []),
+            "count": events.get("count", 0),
+            "note": (events.get("error_message", "")
+                     if events["status"] != "ok" else ""),
+        }
+        empty_side = lambda query: {
+            "query": query, "resolved": True, "name": query,
+            "events": [], "count": 0,
+            "note": "已納入 Google Maps 路線沿途查詢。",
+        }
+        return {
+            "status": "ok" if route_side["resolved"] else "error",
+            "radius_m": radius_m,
+            "origin": empty_side(origin),
+            "destination": empty_side(destination),
+            "route": route_side,
+            "has_events": route_side["count"] > 0,
+            "note": route_side["note"],
+        }
+
     origin_side = _side(origin, radius_m, origin_place)
     destination_side = _side(destination, radius_m, destination_place)
 
@@ -84,6 +128,9 @@ def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_
             "radius_m": radius_m,
             "origin": origin_side,
             "destination": destination_side,
+            "route": {"resolved": False, "name": "Google Maps 路線",
+                      "events": [], "count": 0,
+                      "note": route.get("error_message", "無法取得 Google Maps 路線")},
             "has_events": False,
             "note": "起點與目的地都查不到座標，無法查詢周邊路況。",
         }
@@ -94,6 +141,9 @@ def check_route_events(origin: str, destination: str, radius_m: float = DEFAULT_
         "radius_m": radius_m,
         "origin": origin_side,
         "destination": destination_side,
+        "route": {"resolved": False, "name": "Google Maps 路線",
+                  "events": [], "count": 0,
+                  "note": route.get("error_message", "無法取得 Google Maps 路線")},
         "has_events": has_events,
         "note": "",
     }

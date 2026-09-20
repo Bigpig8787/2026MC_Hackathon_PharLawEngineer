@@ -20,6 +20,7 @@ WKT 字串 `"POINT (經度 緯度)"`（不是巢狀的 lat/lon 物件）；地�
 
 from __future__ import annotations
 
+import math
 import re
 import time
 from datetime import datetime
@@ -229,6 +230,43 @@ def parse_road_events(raw) -> list[dict]:
     return events
 
 
+def _distance_to_segment_meters(point: tuple[float, float],
+                                start: tuple[float, float],
+                                end: tuple[float, float]) -> float:
+    """Approximate point-to-segment distance in meters for nearby coordinates."""
+    lat, lon = point
+    base_lat = (start[0] + end[0] + lat) / 3
+    scale_lat = 111_320.0
+    scale_lon = scale_lat * max(0.01, math.cos(math.radians(base_lat)))
+    px, py = (lon - start[1]) * scale_lon, (lat - start[0]) * scale_lat
+    ex, ey = (end[1] - start[1]) * scale_lon, (end[0] - start[0]) * scale_lat
+    length_sq = ex * ex + ey * ey
+    if length_sq == 0:
+        return (px * px + py * py) ** 0.5
+    t = max(0.0, min(1.0, (px * ex + py * ey) / length_sq))
+    dx, dy = px - t * ex, py - t * ey
+    return (dx * dx + dy * dy) ** 0.5
+
+
+def filter_events_near_route(events: list[dict],
+                             route_points: list[tuple[float, float]],
+                             radius_m: float = DEFAULT_RADIUS_M) -> list[dict]:
+    """Keep TDX events within ``radius_m`` of any segment of a route."""
+    if len(route_points) < 2:
+        return []
+    found = []
+    for event in events:
+        point = (event["lat"], event["lon"])
+        distance = min(
+            _distance_to_segment_meters(point, start, end)
+            for start, end in zip(route_points, route_points[1:])
+        )
+        if distance <= radius_m:
+            found.append({**event, "distance_m": round(distance)})
+    found.sort(key=lambda event: event["distance_m"])
+    return found
+
+
 def _result(status: str, mode: str, source: str, tz: str,
             events: list[dict] | None = None, error_message: str | None = None) -> dict:
     result = {
@@ -326,3 +364,21 @@ def get_road_events(city: str, lat: float, lon: float, radius_m: float = DEFAULT
     nearby.sort(key=lambda e: e["distance_m"])
 
     return _result("ok", mode, source, tz, events=nearby)
+
+
+def get_road_events_along_route(city: str,
+                                route_points: list[tuple[float, float]],
+                                radius_m: float = DEFAULT_RADIUS_M) -> dict:
+    """Fetch TDX events once, then match them against the full route geometry."""
+    if len(route_points) < 2:
+        return {"status": "error", "events": [], "count": 0,
+                "error_message": "Google 路線沒有足夠的幾何點"}
+
+    # The TDX endpoint is city-scoped. Use a large radius only to obtain the
+    # city's event set; the actual proximity check is done against the route.
+    city_events = get_road_events(city, route_points[0][0], route_points[0][1],
+                                  radius_m=1_000_000)
+    if city_events["status"] != "ok":
+        return city_events
+    nearby = filter_events_near_route(city_events["events"], route_points, radius_m)
+    return {**city_events, "events": nearby, "count": len(nearby)}

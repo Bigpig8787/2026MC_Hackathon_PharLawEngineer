@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import re
+from datetime import date
+
 from api import Settings, load_settings
 from commute_agent.tools.local_llm import LocalLLMError, chat_json, is_available
 
@@ -45,6 +48,37 @@ def _clip(text: str) -> str:
     return text[:MAX_BODY_CHARS]
 
 
+def parse_moodle_time_change(subject: str, body: str) -> dict | None:
+    """Extract an explicit dated Moodle start-time notice without guessing its end."""
+    text = subject + "\n" + body
+    course = re.search(r"\d{4}_(.+?)\((\d{4}_[A-Za-z0-9]+)\)", text)
+    year = re.search(r"發表於\s*(\d{4})年", body)
+    changes = set(re.findall(
+        r"(?:下[周週][一二三四五六日天])?[（(](\d{1,2})/(\d{1,2})[）)]"
+        r"上課時間改為\s*(早上|上午|下午|晚上)?\s*(\d{1,2})[:：](\d{2})", text))
+    if not course or not year or len(changes) != 1:
+        return None
+    month, day, period, hour, minute = next(iter(changes))
+    hour, minute = int(hour), int(minute)
+    if period and not 1 <= hour <= 12:
+        return None
+    if period in ("下午", "晚上") and hour < 12:
+        hour += 12
+    if period in ("早上", "上午") and hour == 12:
+        hour = 0
+    if hour > 23 or minute > 59:
+        return None
+    try:
+        effective = date(int(year[1]), int(month), int(day)).isoformat()
+    except ValueError:
+        return None
+    return {"status": "ok", "kind": "time_change", "course": course[1],
+            "course_code": course[2], "new_location": None,
+            "new_time": f"{hour:02}:{minute:02}", "effective_date": effective,
+            "importance": "high", "summary": f"{effective} 開始時間改為 {hour:02}:{minute:02}；結束時間未提供",
+            "confidence": 1.0, "source": "moodle_explicit_text", "scope": "single_occurrence"}
+
+
 def classify_course_mail(subject: str, body: str, settings: Settings | None = None,
                          allow_cloud: bool = False) -> dict:
     """讀一封課程信，判斷它是教室變更、停課、考試通知還是無關信件。
@@ -75,6 +109,9 @@ def classify_course_mail(subject: str, body: str, settings: Settings | None = No
     subject, body = _clip(subject), _clip(body)
     if not subject and not body:
         return {**base, "error_message": "主旨與內文都是空的"}
+    explicit = parse_moodle_time_change(subject, body)
+    if explicit:
+        return explicit
     if not is_available(settings):
         return {**base, "status": "unavailable",
                 "error_message": f"本機 Ollama 未啟動或尚未拉取 {settings.local_llm_model}；"

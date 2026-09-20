@@ -94,6 +94,9 @@ def apply_course_mail(subject: str, body: str, schedule_path: str = "") -> dict:
             patch["building_name"] = place["name"]
     if mail["kind"] == "time_change" and mail["new_time"]:
         patch["time_note"] = mail["new_time"]
+        if mail.get("source") == "moodle_explicit_text":
+            patch.update(start_time=mail["new_time"], effective_date=mail["effective_date"],
+                         scope="single_occurrence")
     if mail["kind"] in ("cancelled", "online"):
         patch["skip_commute"] = True
     # 不用出門的課談緩衝沒有意義

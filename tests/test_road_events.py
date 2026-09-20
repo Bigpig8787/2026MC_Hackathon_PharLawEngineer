@@ -154,6 +154,17 @@ def test_parse_empty_list_returns_empty():
     assert road_events.parse_road_events([]) == []
 
 
+def test_filter_events_near_route_includes_mid_route_event():
+    events = [{"event_id": "mid", "lat": 23.0005, "lon": 120.005,
+               "description": "施工"}]
+    route = [(23.0, 120.0), (23.0, 120.01)]
+
+    found = road_events.filter_events_near_route(events, route, radius_m=100)
+
+    assert [event["event_id"] for event in found] == ["mid"]
+    assert found[0]["distance_m"] < 100
+
+
 def test_parse_missing_coordinates_raises_schema_error_listing_keys():
     rows = [{"EventID": "E8", "Foo": "bar"}]
     with pytest.raises(road_events.SchemaError) as exc:

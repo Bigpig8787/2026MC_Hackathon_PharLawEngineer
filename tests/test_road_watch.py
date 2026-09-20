@@ -99,3 +99,30 @@ def test_supplied_destination_place_avoids_second_fuzzy_lookup(places, monkeypat
 
     assert result["destination"]["resolved"] is True
     assert captured[-1] == (CSIE["lat"], CSIE["lon"], 500.0)
+
+
+def test_route_events_cover_the_path_between_endpoints(places, monkeypatch):
+    places.update({"圖書館": LIBRARY, "B501 資訊工程系館": CSIE})
+    route_event = {**ACCIDENT, "event_id": "MID", "distance_m": 42}
+    monkeypatch.setattr(
+        road_watch,
+        "compute_route",
+        lambda origin, destination, travel_mode: {
+            "status": "ok", "route_points": [(22.9955, 120.2196),
+                                                 (22.9972, 120.2208)]
+        },
+    )
+    monkeypatch.setattr(
+        road_watch,
+        "get_road_events_along_route",
+        lambda city, route_points, radius_m: {
+            "status": "ok", "events": [route_event], "count": 1,
+            "mode": "fixture", "source": "", "fetched_at": "",
+        },
+    )
+
+    result = road_watch.check_route_events("圖書館", "B501 資訊工程系館")
+
+    assert result["status"] == "ok"
+    assert result["route"]["count"] == 1
+    assert result["route"]["events"][0]["event_id"] == "MID"
