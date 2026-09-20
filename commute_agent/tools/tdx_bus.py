@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from api import load_settings
+from commute_agent.scenario import simulated
 from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.ncku_geo import haversine_meters
 
@@ -136,6 +137,7 @@ def unique_by_name(stops: list[dict]) -> list[dict]:
     return list(seen.values())
 
 
+@simulated("bus")
 def get_bus_eta(place: str, radius_m: int = DEFAULT_RADIUS_M) -> dict:
     """查某個地點附近公車站牌的即時到站時間。
 

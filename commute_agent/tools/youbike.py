@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from api import load_settings
+from commute_agent.scenario import simulated
 from commute_agent.tools.geocode import geocode_place
 from commute_agent.tools.ncku_geo import haversine_meters
 
@@ -102,6 +103,7 @@ def nearby_stations(stations: list[dict], lat: float, lon: float, need: str = "b
     return found[:limit]
 
 
+@simulated("bikes")
 def get_bike_status(place: str, need: str = "bike") -> dict:
     """查某個地點附近的 YouBike 站還有沒有車（或還有沒有空位）。
 

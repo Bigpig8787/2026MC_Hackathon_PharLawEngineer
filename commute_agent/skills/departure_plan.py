@@ -113,7 +113,8 @@ def _resolve_building(entry: dict) -> str:
 
 
 def plan_departure(origin: str = "", travel_mode: str = "walking",
-                   vehicle_type: str = "機車", schedule_path: str = "") -> dict:
+                   vehicle_type: str = "機車", schedule_path: str = "",
+                   now: datetime | None = None) -> dict:
     """算出使用者該幾點出發才趕得上下一堂課。
 
     適用時機：使用者問「我該出發了嗎」、「來得及嗎」、「幾點要走」時使用。
@@ -126,6 +127,8 @@ def plan_departure(origin: str = "", travel_mode: str = "walking",
         vehicle_type: driving 時要停的車種，"機車" 或 "汽車"。
         schedule_path: 要依哪一份課表規劃。留空表示用設定裡的預設課表；
             網頁會傳入使用者上傳的那一份。
+        now: 用哪個時間當「現在」，留空是真實時間。網頁的模擬時間靠它，
+            這樣「跳到上課前 20 分」時，該不該出發的判斷才會跟著變。
 
     Returns:
         dict，包含：
@@ -145,7 +148,8 @@ def plan_departure(origin: str = "", travel_mode: str = "walking",
         return {"status": "error", "verdict": None,
                 "error_message": "沒有出發地，也沒有設定 DEFAULT_ORIGIN"}
 
-    schedule = get_next_class(schedule_path)
+    # 只有明確指定時才把 now 往下傳，舊的呼叫端與測試替身不必跟著改簽名
+    schedule = get_next_class(schedule_path, **({"now": now} if now is not None else {}))
     if schedule["status"] == "error":
         return {"status": "error", "verdict": None,
                 "error_message": schedule.get("error_message", "課表讀取失敗")}
@@ -162,7 +166,7 @@ def plan_departure(origin: str = "", travel_mode: str = "walking",
 
     buffer = buffer_minutes_for(upcoming["name"])
     starts_at = datetime.fromisoformat(upcoming["starts_at"])
-    now = datetime.now(ZoneInfo(settings.timezone))
+    now = now or datetime.now(ZoneInfo(settings.timezone))
 
     result = {
         "status": "ok",

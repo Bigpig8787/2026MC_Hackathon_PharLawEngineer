@@ -14,6 +14,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from api import load_settings
+from commute_agent.scenario import simulated
 
 READ_PATH = "/read"
 USER_AGENT = "NCKU-Smart-Commute/0.1 (DevJam TW 2026 hackathon prototype)"
@@ -82,6 +83,7 @@ def _result(status: str, mode: str, source: str, tz: str,
     return result
 
 
+@simulated("parking")
 def get_parking_availability(campus: str, vehicle_type: str) -> dict:
     """查詢成大某校區、某種車輛的即時剩餘停車位。
 

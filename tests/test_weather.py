@@ -1,8 +1,11 @@
 """weather 測試：解析是純函式，不打網路也不需要金鑰。"""
+import ssl
 from datetime import datetime
 
 import pytest
+import requests
 
+from commute_agent.tools import weather
 from commute_agent.tools.weather import (
     RAIN_ALERT_THRESHOLD,
     SchemaError,
@@ -95,3 +98,118 @@ def test_location_without_elements_is_an_error():
     with pytest.raises(SchemaError):
         parse_forecast({"LocationName": "東區", "WeatherElement": []},
                        at("2026-09-21T07:00:00+08:00"))
+
+
+# ---- SSL 連線：一般連線優先，被憑證嚴格檢查擋下才換放寬版 ----
+
+
+class FakeResponse:
+    status_code = 200
+
+    def __init__(self, payload=None):
+        self._payload = payload or {}
+
+    def json(self):
+        return self._payload
+
+
+class FakeSession:
+    """記錄有沒有被建立、掛了哪個 adapter，並回傳預先設定好的結果或例外。"""
+    created = 0
+    mounted = []
+    outcome = FakeResponse()
+
+    def __init__(self):
+        type(self).created += 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def mount(self, prefix, adapter):
+        type(self).mounted.append((prefix, adapter))
+
+    def get(self, url, **kwargs):
+        if isinstance(type(self).outcome, Exception):
+            raise type(self).outcome
+        return type(self).outcome
+
+
+@pytest.fixture
+def fake_session(monkeypatch):
+    FakeSession.created = 0
+    FakeSession.mounted = []
+    FakeSession.outcome = FakeResponse()
+    monkeypatch.setattr(weather.requests, "Session", FakeSession)
+    return FakeSession
+
+
+def raises(exc):
+    def _get(*args, **kwargs):
+        raise exc
+    return _get
+
+
+def test_relaxed_adapter_drops_only_the_strict_flag():
+    adapter = weather._RelaxedStrictAdapter()
+    context = adapter.poolmanager.connection_pool_kw["ssl_context"]
+    assert not context.verify_flags & ssl.VERIFY_X509_STRICT
+    # 憑證鏈與主機名稱仍然要驗，不是整個關掉 SSL 驗證
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname is True
+
+
+def test_normal_connection_is_used_first_and_no_fallback_on_success(monkeypatch, fake_session):
+    ok = FakeResponse()
+    monkeypatch.setattr(weather.requests, "get", lambda url, **kw: ok)
+    assert weather._get_with_ssl_fallback("https://example.test") is ok
+    assert fake_session.created == 0
+
+
+def test_ssl_error_falls_back_to_the_relaxed_session(monkeypatch, fake_session):
+    monkeypatch.setattr(weather.requests, "get", raises(requests.exceptions.SSLError("strict")))
+    fallback = FakeResponse()
+    fake_session.outcome = fallback
+
+    assert weather._get_with_ssl_fallback("https://example.test") is fallback
+    assert fake_session.created == 1
+    prefix, adapter = fake_session.mounted[0]
+    assert prefix == "https://"
+    assert isinstance(adapter, weather._RelaxedStrictAdapter)
+
+
+def test_timeout_is_not_retried_with_the_relaxed_session(monkeypatch, fake_session):
+    monkeypatch.setattr(weather.requests, "get", raises(requests.Timeout("slow")))
+    with pytest.raises(requests.Timeout):
+        weather._get_with_ssl_fallback("https://example.test")
+    assert fake_session.created == 0
+
+
+def _settings():
+    return type("S", (), {"cwa_api_key": "test-key", "timezone": "Asia/Taipei",
+                          "http_timeout_seconds": 8})()
+
+
+def test_get_weather_succeeds_through_the_fallback(monkeypatch, fake_session):
+    monkeypatch.setattr(weather, "load_settings", _settings)
+    monkeypatch.setattr(weather.requests, "get", raises(requests.exceptions.SSLError("strict")))
+    loc = location(ranged("3小時降雨機率", "ProbabilityOfPrecipitation", SLOTS))
+    fake_session.outcome = FakeResponse({"records": {"Locations": [{"Location": [loc]}]}})
+
+    result = weather.get_weather(when_iso="2026-09-21T10:00:00+08:00")
+
+    assert result["status"] == "ok"
+    assert result["rain_probability"] == 80
+
+
+def test_get_weather_reports_the_error_when_the_fallback_also_fails(monkeypatch, fake_session):
+    monkeypatch.setattr(weather, "load_settings", _settings)
+    monkeypatch.setattr(weather.requests, "get", raises(requests.exceptions.SSLError("strict")))
+    fake_session.outcome = requests.exceptions.SSLError("still bad cert")
+
+    result = weather.get_weather(when_iso="2026-09-21T10:00:00+08:00")
+
+    assert result["status"] == "error"
+    assert "SSLError" in result["error_message"]
