@@ -527,13 +527,13 @@ const FLOOR_SOURCE_NOTE = {
   room_code: "成大 GIS 查不到，樓層由教室代碼推算。",
 };
 
-function renderPlanImage(image, highlight) {
+function renderPlanImage(image, highlight, label = "這裡") {
   if (!image || !image.url) {
     return `<p class="note">${esc((image && image.error_message) || "沒有這一層的平面圖。")}</p>`;
   }
   const mark = highlight
     ? `<div class="plan-mark" style="left:${highlight.left}%;top:${highlight.top}%;
-         width:${highlight.width}%;height:${highlight.height}%"><span>這裡</span></div>`
+         width:${highlight.width}%;height:${highlight.height}%"><span>${esc(label)}</span></div>`
     : "";
   return `<figure class="plan"><div class="plan-wrap">
       <img src="${esc(image.url)}" alt="${esc(image.caption || "平面圖")}">${mark}</div>
@@ -555,8 +555,9 @@ function renderClassroom() {
   const plan = r.floor_plan || {};
   const shown = planOverride || plan;
   const figure = classroomView === "campus"
-    ? renderPlanImage(r.campus_map, null)
-    : renderPlanImage(shown, shown === plan ? plan.highlight : null);
+    ? renderPlanImage(r.campus_map, r.campus_map && r.campus_map.highlight,
+        r.campus_map && (r.campus_map.highlight_label || r.room_code || r.building_id))
+    : renderPlanImage(shown, shown === plan ? plan.highlight : null, r.room_code);
 
   // 這棟每一層都有圖層時，讓使用者自己翻樓層——找不到教室時常常是記錯樓
   const floorTabs = (plan.floors || []).map(f =>
@@ -1139,6 +1140,12 @@ function renderParking(data) {
   box.innerHTML = html;
 }
 
+function isClosedRoadEvent(event) {
+  const text = [event.description, event.category, event.road_name]
+    .filter(Boolean).join(" ");
+  return event.is_closure || /封閉|封路|禁止通行|管制|施工/.test(text);
+}
+
 function renderEventSide(label, side) {
   if (!side.resolved) {
     return `<p class="label">${esc(label)}</p><p class="note">${esc(side.note)}</p>`;
@@ -1146,16 +1153,23 @@ function renderEventSide(label, side) {
   if (side.note) {
     return `<p class="label">${esc(label)}・${esc(side.name)}</p><p class="err">${esc(side.note)}</p>`;
   }
-  if (!side.events.length) {
+  const events = side.events || [];
+  const closureCount = Number(side.closure_count || 0)
+    || events.filter(isClosedRoadEvent).length;
+  const closureWarning = side.has_closed_route || closureCount
+    ? `<p class="note warn">⚠ 導航路線有 ${closureCount || 1} 件封閉路段或交通管制，請改道。</p>`
+    : "";
+  if (!events.length) {
     return `<p class="label">${esc(label)}・${esc(side.name)}</p><p class="event-clear">附近沒有回報的路況事件</p>`;
   }
-  const rows = side.events.map(e => {
+  const rows = events.map(e => {
     const what = e.description || (e.type_is_code ? `分類代碼 ${e.type_code}` : "（無說明）");
-    const tag = e.category ? `<span class="badge">${esc(e.category)}</span> ` : "";
+    const tag = (isClosedRoadEvent(e) ? `<span class="badge">封閉路段</span> ` : "")
+      + (e.category ? `<span class="badge">${esc(e.category)}</span> ` : "");
     return `<div class="event"><div class="dist">${e.distance_m}m</div>
       <div><b>${tag}${esc(what)}</b><div class="meta">${esc(e.road_name || "（無地點資訊）")}</div></div></div>`;
   }).join("");
-  return `<p class="label">${esc(label)}・${esc(side.name)}</p>${rows}`;
+  return `<p class="label">${esc(label)}・${esc(side.name)}</p>${closureWarning}${rows}`;
 }
 
 function renderRoadEvents(data) {
