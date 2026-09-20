@@ -24,6 +24,7 @@ import json
 
 from api import load_settings
 from commute_agent.skills.compare_plans import compare_plans
+from commute_agent.tools.gemini_error import describe
 
 # 只把模型判斷需要的欄位丟過去：座標、連結、逐段明細對取捨沒有幫助，
 # 塞進 prompt 只會變貴又容易讓它分心
@@ -154,7 +155,7 @@ def recommend_plan(origin: str = "", vehicle_type: str = "機車",
         )
         answer = json.loads(response.text or "{}")
     except Exception as exc:  # SDK 會丟各種自訂例外，額度用盡也走這裡
-        return _fallback(result, f"Gemini 無法回應（{type(exc).__name__}）。")
+        return _fallback(result, f"{describe(exc)}。")
 
     chosen = answer.get("chosen_mode")
     valid = {option["mode"] for option in result["options"]

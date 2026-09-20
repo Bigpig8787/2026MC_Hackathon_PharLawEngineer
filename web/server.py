@@ -32,9 +32,11 @@ from fastapi.staticfiles import StaticFiles
 from api import load_settings
 from commute_agent.tools.class_schedule import PROJECT_ROOT, find_classes, load_courses
 from commute_agent.tools.floor_plan import PICTURE_DIR, PICTURE_URL_PREFIX
+from commute_agent.tools.ncku_floorplan import floor_plan_url
 from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
 from commute_agent.skills.bike_plan import plan_bike_journey
+from commute_agent.skills.campus_walk import plan_campus_walk
 from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.departure_notify import notify_departure
@@ -357,6 +359,44 @@ def classroom(q: str, origin: str | None = None, mode: str = "walking") -> JSONR
     result = locate_classroom(q, start, mode)
     return JSONResponse(result,
                         status_code=200 if result["status"] != "error" else 400)
+
+
+@app.get("/api/floorplan")
+def floorplan(build_id: str, floor: str) -> JSONResponse:
+    """換一層樓的平面圖。
+
+    只組圖層網址，不再查教室，所以在樓層之間切換是即時的；
+    圖片本身由瀏覽器直接向成大 GeoServer 要，不經過這台伺服器。
+    """
+    result = floor_plan_url(build_id, floor)
+    return JSONResponse(result,
+                        status_code=200 if result["status"] == "ok" else 404)
+
+
+@app.get("/api/campuswalk")
+def campuswalk(lot: str, q: str, room: str = "") -> JSONResponse:
+    """停好車之後怎麼走到大樓：校區圖 ＋ 路線 ＋ 指路文字。
+
+    另開一支而不是併進 /api/state：它要打一次 Google Routes 與一次 Gemini，
+    整頁等它會慢好幾秒，而使用者不選機車或開車時根本用不到。
+    """
+    lot_name = (lot or "").strip()
+    known = load_lot_locations().get(lot_name)
+    if not known:
+        return JSONResponse({"status": "error",
+                             "error_message": f"對照表裡沒有「{lot_name}」的座標"},
+                            status_code=404)
+
+    place = locate_course_place(q, room)
+    if place["status"] != "ok":
+        return JSONResponse({"status": "error",
+                             "error_message": place.get("error_message", "查不到目的地座標")},
+                            status_code=404)
+
+    result = plan_campus_walk(lot_name, known["lat"], known["lon"],
+                              place["name"] or q, place["lat"], place["lon"])
+    return JSONResponse(result,
+                        status_code=200 if result["status"] == "ok" else 400)
 
 
 @app.get("/api/youbike/route")

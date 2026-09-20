@@ -32,7 +32,7 @@
       "rooms": ["27101", "27102", "27103", "27120", "27122", "27123"]
     },
     {
-      "file": "資訊大樓.png",
+      "file": "xinxi-building.png",
       "caption": "資訊大樓 B1 平面圖（格致廳大講堂與小講堂）",
       "building_name": "資訊大樓",
       "room_prefix": "",
