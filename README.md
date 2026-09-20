@@ -51,6 +51,13 @@ adk web                                          # 開 http://localhost:8000
 | `get_travel_time` | `tools/travel_time.py` | 時間來源的統一接口，依設定選 `estimate` 或 Google Routes，後者失敗會自動退回前者 |
 | `compute_route` | `tools/google_routes.py` | Google Routes API，真實路線時間（需金鑰、會計費） |
 | `plan_departure` | `skills/departure_plan.py` | 倒推「該幾點出發」，含進教室緩衝；考試與報告自動加長緩衝 |
+| `plan_next_transition` | `skills/class_transition.py` | 課間轉場：正在上課或剛下課時，從上一堂教室走到下一堂來不來得及；用 GIS 座標估算，不呼叫計費 API |
+| `replan_commute` | `skills/replan.py` | 環境變化後重新規畫：檢查目前的交通方式還行不行，不行就換並說明原因；先只檢查目前這一種，有問題才比較全部（省計費的路線查詢） |
+| `get_rain_now` | `tools/rain_observation.py` | 雨量站即時觀測（實測，不是預報），與天氣預報共用 `CWA_API_KEY` |
+| `draft_late_notice`、`draft_leave_notice` | `skills/late_notice.py` | 遲到／請假通知信草稿：只產生、不寄出；原因與署名由使用者自己填，不代編 |
+| `check_attendance_now` | `skills/attendance.py` | 出席檢查：課堂進行中，比較使用者輸入的位置（或即時定位）與上課大樓，不在就算遲到或缺席，並建議寫遲到信還是請假信；只判斷到「大樓附近」 |
+| （網頁）日曆匯出 | `skills/calendar_export.py` | 「加到 Google 日曆」連結與 `.ics` 下載；不走 Calendar API，不需要授權 |
+| （網頁）拍門牌 | `skills/scan_room_sign.py` | 拍教室門牌，Gemini 讀字、成大 GIS 驗證，說明目標教室相對位置 |
 | `get_bike_status` | `tools/youbike.py` | 某地點附近 YouBike 可借車輛或可還空位（免金鑰） |
 | `get_weather` | `tools/weather.py` | 中央氣象署臺南市鄉鎮預報，降雨機率與體感溫度（需 `CWA_API_KEY`） |
 | `get_bus_eta` | `tools/tdx_bus.py` | TDX 臺南市公車即時到站（需 `TDX_CLIENT_ID`／`SECRET`） |
@@ -124,6 +131,24 @@ Google 只會算到大樓門口的騎車時間，但實際上得先停車再走�
 出發地可以在頁面上自己填（例如「成大圖書館」），留空則用 `.env` 的
 `DEFAULT_ORIGIN`。校內地點用免費估算，校外地址（住家、車站）會自動改用
 Google 的實際路線，介面會標明這次的時間是估算還是實際路線。
+
+## 模擬情境與自動調整（Demo 用）
+
+> 目前前端**預設隱藏**這組功能（操作不夠直觀）；後端、測試與 Agent 工具都還在。
+> 要打開，把 `web/index.html` 的 `SHOW_ADAPTIVE` 改成 `true`。
+
+真實資料不會在 Demo 現場剛好下大雨或把 YouBike 借光，所以頁面的「展示控制」有四個情境按鈕：
+**豪雨、YouBike 歸零、停車場全滿、公車停駛**。它們只在 Tool 的回傳值上覆寫被指定的那一項
+（`commute_agent/scenario.py`），其餘仍是真實查詢，畫面會標示「模擬」。
+情境只綁在**當次請求**（前端每次帶 `scenario=`），後端不保存，Cloud Run 多實例也不會互相干擾。
+
+勾選「自動調整交通方式」後，每次更新都會呼叫 `/api/replan`（`skills/replan.py`）：
+
+- **硬失效**（一定換）：借不到車、停車場全滿、會遲到、公車沒班次。
+- **軟風險**（有更好的才換）：會淋雨、車位偏少；要有「風險明顯更少、又不會慢超過 10 分鐘」的替代方案才換，避免降雨機率在門檻上下跳時來回切換。
+- **省錢**：每輪先只檢查目前這一種；出現硬失效或「沒見過的新風險」才比較全部。前端把已接受的風險（`known_soft`）帶回來，同樣的風險不會每輪重算。
+- 換了交通方式會記在「調整記錄」，並說明原因；決策全是確定性程式，不用 Gemini 額度。
+- 模擬時間下不採用「真實現在」的即時觀測（雨量、公車），除非明確啟用對應情境。
 
 ## 已知的資料限制
 

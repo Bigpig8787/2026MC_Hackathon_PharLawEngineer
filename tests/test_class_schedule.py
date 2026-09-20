@@ -8,6 +8,7 @@ from commute_agent.tools.class_schedule import (
     SchemaError,
     extract_room_query,
     find_classes,
+    find_recent_class,
     load_courses,
 )
 
@@ -77,6 +78,48 @@ def test_class_starting_exactly_now_counts_as_current_not_next():
     current, nxt = find_classes(COURSES, at("2026-09-14T09:00"))
     assert current["name"] == "數位IC設計"
     assert nxt["name"] == "日文（一）"
+
+
+def test_recent_class_is_the_one_that_just_ended():
+    # 星期一 12:05，數位IC設計 12:00 下課
+    recent = find_recent_class(COURSES, at("2026-09-14T12:05"), within_minutes=20)
+    assert recent["name"] == "數位IC設計"
+    assert recent["room_query"] == "4264"
+
+
+def test_class_ending_exactly_now_counts_as_just_ended():
+    assert find_recent_class(COURSES, at("2026-09-14T12:00"), 20)["name"] == "數位IC設計"
+
+
+def test_no_recent_class_once_the_window_has_passed():
+    assert find_recent_class(COURSES, at("2026-09-14T12:30"), 20) is None
+
+
+def test_class_in_session_is_not_recent():
+    # 還在上課，下課時間沒到，那是 find_classes 的 current，不是「剛下課」
+    assert find_recent_class(COURSES, at("2026-09-14T11:00"), 20) is None
+
+
+def test_most_recently_ended_class_wins():
+    courses = [
+        {"name": "A", "day": "Monday", "start_time": "09:00", "end_time": "12:00", "location": "x"},
+        {"name": "B", "day": "Monday", "start_time": "10:00", "end_time": "12:10", "location": "y"},
+    ]
+    assert find_recent_class(courses, at("2026-09-14T12:15"), 20)["name"] == "B"
+
+
+def test_recent_class_crosses_midnight_into_the_new_week():
+    # 週日 23:50 下課，週一凌晨 00:05 還算剛下課
+    sunday = [{"name": "夜間課", "day": "Sunday", "start_time": "23:00",
+               "end_time": "23:50", "location": "x"}]
+    assert find_recent_class(sunday, at("2026-09-14T00:05"), 20)["name"] == "夜間課"
+
+
+def test_recent_class_rejects_unknown_weekday():
+    bad = [{"name": "x", "day": "Funday", "start_time": "09:00",
+            "end_time": "10:00", "location": "a"}]
+    with pytest.raises(SchemaError):
+        find_recent_class(bad, at("2026-09-14T08:00"), 20)
 
 
 def test_unknown_weekday_is_rejected():

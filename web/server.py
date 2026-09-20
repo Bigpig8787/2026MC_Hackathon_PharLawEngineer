@@ -26,7 +26,8 @@ from zoneinfo import ZoneInfo
 
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from api import load_settings
@@ -37,7 +38,16 @@ from commute_agent.tools.ncku_room import lookup_room
 from commute_agent.tools.schedule_ocr import OCRError, extract_schedule_from_image
 from commute_agent.skills.bike_plan import plan_bike_journey
 from commute_agent.skills.campus_walk import plan_campus_walk
+from commute_agent.scenario import SCENARIOS, active as active_scenarios
+from commute_agent.scenario import parse_names as parse_scenarios, use as use_scenarios
+from commute_agent.skills.calendar_export import build_google_calendar_url, build_ics
+from commute_agent.skills.class_transition import find_transition
 from commute_agent.skills.classroom_guide import locate_classroom
+from commute_agent.skills.attendance import check_attendance
+from commute_agent.skills.late_notice import build_late_notice, build_leave_notice
+from commute_agent.skills.replan import replan
+from commute_agent.skills.scan_room_sign import confirm_room, scan_room_sign
+from commute_agent.tools.rain_observation import get_rain_now
 from commute_agent.skills.locate_place import locate_course_place
 from commute_agent.skills.departure_notify import notify_departure
 from commute_agent.skills.departure_plan import plan_departure
@@ -191,6 +201,12 @@ def _with_route(entry: dict | None, origin: str, travel_mode: str) -> dict | Non
                           "lat", "lon", "gemini_keyword", "error_message")}
     enriched["route_link"] = build_route_link(target, origin=origin or None,
                                               travel_mode=travel_mode)
+    # 「加到 Google 日曆」：只是一個網址，點開後由使用者在 Google 端確認才會加入，
+    # 不需要授權，也不經過我們保存任何資料
+    enriched["calendar_url"] = build_google_calendar_url(
+        entry["name"], entry["starts_at"], entry["ends_at"],
+        location=enriched["building_name"] or entry["location"],
+        details=f"課表地點：{entry['location']}")
     enriched["origin"] = origin
     enriched["travel_mode"] = travel_mode
     return enriched
@@ -233,8 +249,19 @@ def _bikes_for(entry: dict | None, origin: str) -> dict | None:
 
 
 @app.get("/api/state")
-def state(mode: str = "walking", vehicle: str = "機車",
-          origin: str | None = None, now: str | None = None) -> JSONResponse:
+def state(mode: str = "walking", vehicle: str = "機車", origin: str | None = None,
+          now: str | None = None, scenario: str | None = None, lat: float | None = None,
+          lon: float | None = None, accuracy: float | None = None) -> JSONResponse:
+    # 模擬情境只在這一次請求內有效（見 commute_agent/scenario.py），請求結束就還原。
+    # lat／lon／accuracy 是使用者按下「用我的目前位置」後瀏覽器給的定位，
+    # 只拿來這一次判斷在不在教室，後端不保存
+    with use_scenarios(parse_scenarios(scenario)):
+        return _state(mode, vehicle, origin, now, lat, lon, accuracy)
+
+
+def _state(mode: str, vehicle: str, origin: str | None, now: str | None,
+           lat: float | None = None, lon: float | None = None,
+           accuracy: float | None = None) -> JSONResponse:
     if mode not in TRAVEL_MODE_LABELS:
         return JSONResponse({"error": f"不支援的交通模式：{mode}"}, status_code=400)
 
@@ -285,7 +312,7 @@ def state(mode: str = "walking", vehicle: str = "機車",
     trip = None
     road_events = None
     if next_class:
-        destination = next_class["building_name"] or next_class["location"]
+        destination = next_class.get("building_name") or next_class["location"]
         trip = estimate_trip(start, destination, mode) if start else None
         # 起點與目的地都查得到座標才有意義；查不到座標的那端 check_route_events
         # 自己會標成 resolved=False，這裡只是省掉明知道會兩端都落空的呼叫
@@ -298,10 +325,22 @@ def state(mode: str = "walking", vehicle: str = "機車",
                                if destination_place and destination_place.get("status") == "ok"
                                else None),
         ) if start else None
+    # 課間轉場：正在上課或剛下課、下一堂又很快開始時，出發地就是上一堂的教室，
+    # 不必使用者再填。用同一個（可能是模擬的）時間，才不會跟畫面上的課對不起來
+    transition = find_transition(courses, moment, current, upcoming)
+
+    # 出席檢查：正在上課時，比較「你現在的位置」與「上課的教室」，不在就算遲到或缺席。
+    # 「你現在的位置」只認使用者自己輸入的（或即時定位），不用 .env 的預設地址：
+    # 那是「出發地」的預設值（通常是住家），拿來當現在位置會把還沒輸入位置的人誤判成缺席
+    attendance = (check_attendance(current, moment, place_text=(origin or "").strip(),
+                                   lat=lat, lon=lon, accuracy_m=accuracy)
+                  if current else None)
     # 出發規劃一次算完路程、緩衝與天氣；騎車模式的分段時間也在裡面，
     # 所以上面的停車查詢不再重算，避免同一趟路重複呼叫 Google。
-    # 傳入使用者上傳的那份課表，否則出發時間會依範例課表算，跟畫面顯示的課不同堂
-    departure = (plan_departure(start, mode, vehicle, str(path))
+    # 傳入使用者上傳的那份課表，否則出發時間會依範例課表算，跟畫面顯示的課不同堂；
+    # 也要傳入同一個（可能是模擬的）時間，否則模擬「上課前 20 分」時，
+    # 該不該出發的判斷卻還是拿真實時間在算
+    departure = (plan_departure(start, mode, vehicle, str(path), now=moment)
                  if (next_class and start) else None)
 
     return JSONResponse({
@@ -313,6 +352,8 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "trip": trip,
         "road_events": road_events,
         # 只有騎車開車才需要停車位，步行與大眾運輸不查，省掉七次連線
+        "transition": transition,
+        "attendance": attendance,
         "departure": departure,
         # 每個模式只查自己用得到的資料：停車位要掃七個校區、公車有速率限制、
         # YouBike 要下載 6 MB，全部都查會讓每次換模式都變慢又浪費額度。
@@ -321,11 +362,17 @@ def state(mode: str = "walking", vehicle: str = "機車",
         "bus": get_bus_eta(start) if (mode == "transit" and start) else None,
         "courses": courses,
         "schedule_changes": changes(path),
+        # 雨量站的即時讀數。模擬時間下「真實的現在」沒有意義，所以略過，
+        # 除非 Demo 明確開了豪雨情境（那時覆寫值就是要被採用的）
+        "rain_now": (get_rain_now()
+                     if (not simulated or "heavy_rain" in active_scenarios()) else None),
+        "scenarios": {"active": sorted(active_scenarios()), "options": SCENARIOS},
     })
 
 
 @app.get("/api/recommend")
-def recommend(origin: str | None = None, vehicle: str = "機車") -> JSONResponse:
+def recommend(origin: str | None = None, vehicle: str = "機車", now: str | None = None,
+              preference: str | None = None, scenario: str | None = None) -> JSONResponse:
     """比較四種交通方式並請 Gemini 給建議。
 
     頁面載入時就自動打，不必等使用者按按鈕 —— 建議本來就是這頁要回答的問題，
@@ -342,9 +389,103 @@ def recommend(origin: str | None = None, vehicle: str = "機車") -> JSONRespons
     if not path.is_file():
         return JSONResponse({"error": "還沒有課表，無法給建議"}, status_code=400)
 
-    result = recommend_plan(start, vehicle, str(path))
+    moment, simulated, time_error = resolve_now(now, settings.timezone)
+    if time_error:
+        return JSONResponse({"error": time_error}, status_code=400)
+
+    # preference 是使用者在頁面上自己設定的偏好（只存在他的瀏覽器），每次請求帶上來；
+    # 沒帶就退回 .env 的 COMMUTE_PREFERENCE
+    with use_scenarios(parse_scenarios(scenario)):
+        result = recommend_plan(start, vehicle, str(path), preference=preference or "",
+                                now=moment if simulated else None)
     return JSONResponse(result,
                         status_code=200 if result["status"] == "ok" else 400)
+
+
+@app.get("/api/replan")
+def replan_route(mode: str = "", origin: str | None = None, vehicle: str = "機車",
+                 now: str | None = None, scenario: str | None = None,
+                 known_soft: str = "") -> JSONResponse:
+    """檢查目前的交通方式還行不行，不行就改，並說明原因。
+
+    無狀態：上一輪的交通方式（mode）與已經接受的風險（known_soft）都由前端帶來，
+    所以 Cloud Run 縮到零或同時開好幾個實例都不受影響。每一輪先只檢查目前這一種，
+    沒問題就不會去跑四種路線查詢（那是計費的），細節見 skills/replan.py。
+    """
+    if mode and mode not in TRAVEL_MODE_LABELS:
+        return JSONResponse({"error": f"不支援的交通模式：{mode}"}, status_code=400)
+
+    settings = load_settings()
+    moment, simulated, time_error = resolve_now(now, settings.timezone)
+    if time_error:
+        return JSONResponse({"error": time_error}, status_code=400)
+
+    start = (origin or "").strip() or settings.default_origin
+    if not start:
+        return JSONResponse({"error": "沒有出發地"}, status_code=400)
+
+    path = user_schedule_path()
+    if not path.is_file():
+        return JSONResponse({"error": "還沒有課表，無法檢查"}, status_code=400)
+
+    with use_scenarios(parse_scenarios(scenario)):
+        result = replan(start, vehicle, str(path), previous_mode=mode or None, now=moment,
+                        simulated=simulated,
+                        known_soft=[c for c in known_soft.split(",") if c])
+    return JSONResponse(result, status_code=200 if result["status"] == "ok" else 400)
+
+
+@app.get("/api/calendar.ics")
+def calendar_ics(weeks: int = 18) -> Response:
+    """整份課表匯出成 .ics，Google、Apple、Outlook 日曆都能匯入。"""
+    path = user_schedule_path()
+    if not path.is_file():
+        return JSONResponse({"error": "還沒有課表，沒有東西可以匯出"}, status_code=404)
+
+    today = datetime.now(ZoneInfo(load_settings().timezone)).date()
+    body = build_ics(load_courses(path), today, weeks=max(1, min(weeks, 30)))
+    return Response(content=body.encode("utf-8"), media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="ncku-schedule.ics"'})
+
+
+@app.get("/api/late_notice")
+def late_notice(course: str, starts_at: str, late: int = 1, place: str = "",
+                reason: str = "", to: str = "", name: str = "",
+                kind: str = "late") -> JSONResponse:
+    """產生給老師的遲到（kind=late）或請假（kind=leave）通知信草稿。
+
+    只是草稿，不寄信、不保存任何資料。
+    """
+    if kind not in ("late", "leave"):
+        return JSONResponse({"error": f"kind 只能是 late 或 leave，收到 {kind!r}"},
+                            status_code=400)
+    try:
+        notice = (build_leave_notice(course, starts_at, place, reason, to, name)
+                  if kind == "leave"
+                  else build_late_notice(course, starts_at, late, place, reason, to, name))
+    except ValueError:
+        return JSONResponse({"error": f"無法解析的時間：{starts_at!r}"}, status_code=400)
+    return JSONResponse(notice)
+
+
+@app.get("/api/here")
+def here(code: str, target: str = "") -> JSONResponse:
+    """使用者自己輸入或點選確認教室代碼：不經過 Gemini，只回成大 GIS 驗證。
+
+    拍門牌讀錯字時，讓使用者點選相近的教室，或直接輸入看到的代碼。
+    """
+    result = confirm_room(code, target)
+    return JSONResponse(result, status_code=200 if result["status"] != "error" else 400)
+
+
+@app.post("/api/scan_room")
+async def scan_room(file: UploadFile = File(...), target: str = "") -> JSONResponse:
+    """收一張門牌照片，認出使用者現在在哪一間，並說明目標教室相對的位置。"""
+    raw = await file.read()
+    # Gemini 與成大 GIS 的呼叫都是阻塞的，放到執行緒池，別卡住整個伺服器
+    result = await run_in_threadpool(scan_room_sign, raw,
+                                     (file.content_type or "").lower(), target)
+    return JSONResponse(result, status_code=200 if result["status"] != "error" else 400)
 
 
 @app.get("/api/classroom")

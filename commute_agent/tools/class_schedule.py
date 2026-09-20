@@ -105,6 +105,31 @@ def find_classes(courses: list[dict], now: datetime) -> tuple[dict | None, dict 
     return current, (upcoming[0][1] if upcoming else None)
 
 
+def find_recent_class(courses: list[dict], now: datetime, within_minutes: int) -> dict | None:
+    """回傳 within_minutes 分鐘內剛下課的那一堂，沒有就回 None。純函式。
+
+    用來推測使用者「人大概還在上一堂的教室附近」：find_classes 只看得到
+    正在上的課，下課那一刻起 current 就變成 None，這時要靠這支才知道
+    剛才在哪。正在上課的不算（下課時間還沒到）。
+    """
+    latest: tuple[datetime, dict] | None = None
+
+    for course in courses:
+        if course.get("day") not in WEEKDAY_OF:
+            raise SchemaError(f"課程 {course.get('name')!r} 的 day 欄位無法辨識：{course.get('day')!r}")
+        # 週一凌晨剛過就要看到上週日的課，所以也往前算一週
+        for week in (-1, 0):
+            start, end = _course_datetimes(course, now)
+            start += timedelta(weeks=week)
+            end += timedelta(weeks=week)
+            ended_minutes_ago = (now - end).total_seconds() / 60
+            if 0 <= ended_minutes_ago <= within_minutes:
+                if latest is None or end > latest[0]:
+                    latest = (end, _as_entry(course, start, end, now))
+
+    return latest[1] if latest else None
+
+
 def load_courses(path: Path) -> list[dict]:
     payload = json.loads(path.read_text(encoding="utf-8"))
     courses = payload.get("courses")
@@ -118,7 +143,7 @@ def load_courses(path: Path) -> list[dict]:
     return attach(courses, path)
 
 
-def get_next_class(schedule_path: str = "") -> dict:
+def get_next_class(schedule_path: str = "", now: datetime | None = None) -> dict:
     """查使用者的課表，回傳現在正在上的課與下一堂課。
 
     適用時機：使用者問「我下一堂課在哪」、「等一下要去哪上課」、
@@ -128,6 +153,8 @@ def get_next_class(schedule_path: str = "") -> dict:
         schedule_path: 要讀哪一份課表。留空表示用設定裡的預設課表。
             網頁會傳入使用者上傳辨識出來的那一份，否則出發時間會依範例
             課表計算，跟畫面上顯示的課不是同一堂。
+        now: 用哪個時間當「現在」，留空是真實時間。網頁的模擬時間靠它，
+            否則畫面顯示的是模擬時間的下一堂，這裡卻用真實時間去找。
 
     Returns:
         dict，包含：
@@ -141,7 +168,7 @@ def get_next_class(schedule_path: str = "") -> dict:
     """
     settings = load_settings()
     tz = settings.timezone
-    now = datetime.now(ZoneInfo(tz))
+    now = now or datetime.now(ZoneInfo(tz))
     path = Path(schedule_path or settings.class_schedule_path)
     if not path.is_absolute():
         path = PROJECT_ROOT / path

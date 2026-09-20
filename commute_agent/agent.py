@@ -15,6 +15,11 @@ from commute_agent.tools.tdx_bus import get_bus_eta
 from commute_agent.tools.weather import get_weather
 from commute_agent.tools.youbike import get_bike_status
 from commute_agent.skills.campus_walk import plan_campus_walk
+from commute_agent.skills.attendance import check_attendance_now
+from commute_agent.skills.class_transition import plan_next_transition
+from commute_agent.skills.late_notice import draft_late_notice, draft_leave_notice
+from commute_agent.skills.replan import replan_commute
+from commute_agent.tools.rain_observation import get_rain_now
 from commute_agent.skills.classroom_guide import locate_classroom
 from commute_agent.skills.compare_plans import compare_plans
 from commute_agent.skills.locate_place import locate_course_place
@@ -122,6 +127,28 @@ root_agent = LlmAgent(
         "is_real_path 為 False 代表 Google 算不出步行路線，圖上畫的只是起訖直線，\n"
         "轉述時要講明那不是真的走得通的路；directions.steps 為空代表指路文字沒有產出，\n"
         "這時只講距離與時間，不可以自己編地標。\n"
+        "16. plan_next_transition：使用者正在上課或剛下課，問「下一堂來得及嗎」、\n"
+        "「要換教室了，走過去要多久」時用這支。出發地就是上一堂的教室，不要再問使用者在哪。\n"
+        "status 為 not_applicable 代表現在不是課間，這時改用 plan_departure。\n"
+        "時間是座標直線距離的估算值，轉述要說「大約」；verdict 為 late 時要講會遲到幾分鐘。\n"
+        "17. get_rain_now：查成大附近雨量站「現在有沒有在下雨」（實測，不是預報）。\n"
+        "使用者問「現在在下雨嗎」、出門前想確認會不會淋到雨時用；預報用 get_weather。\n"
+        "status 為 not_found 或 error 時要照實說查不到，不可以當成沒下雨；\n"
+        "level 是過去一小時的雨勢，雨剛停時 is_raining 為 False 但路面仍濕。\n"
+        "18. replan_commute：使用者已經選了交通方式，問「還是這樣去嗎」、\n"
+        "「下雨了要不要改」、「YouBike 沒車了怎麼辦」時用這支。\n"
+        "action 為 switch 代表建議改換、keep 代表維持、no_option 代表都不可行；\n"
+        "summary 是可直接轉述的一句話，reasons 是原因，不要自己另外編理由。\n"
+        "19. draft_late_notice：確定會遲到、使用者想通知老師時用這支產生草稿。\n"
+        "它只產生草稿，絕對不會寄出，不可以說「已經幫你寄出」；\n"
+        "要提醒使用者確認內容、填入署名與收件人後自己寄。\n"
+        "20. check_attendance_now：現在正在上課，使用者說出自己所在的地點（例如「我在圖書館」），\n"
+        "想知道是不是遲到了時用這支。place 只能用使用者剛說的位置，不可以拿預設地址（住家）充數。\n"
+        "at_class 為 False 代表不在上課的大樓附近，suggestion 是 late（建議遲到信）或 leave（建議請假）。\n"
+        "判斷只到「大樓附近」，要講明分不出樓層或哪一間教室；status 為 no_location 時要請使用者說位置，\n"
+        "不可以自己假設他缺席。\n"
+        "21. draft_leave_notice：使用者決定請假時產生請假信草稿。原因由使用者填，\n"
+        "不可以替他編（例如「生病」）；同樣只是草稿，不會寄出。\n"
         "\n"
         "挑交通方式的原則：在「準時、舒適、環保」之間權衡。\n"
         "準時是硬性條件——會遲到的方案除非別無選擇否則不推薦，不可以為了環保讓使用者遲到。\n"
@@ -149,5 +176,7 @@ root_agent = LlmAgent(
            plan_departure, get_bike_status, get_weather, get_bus_eta,
            compare_plans, locate_classroom, locate_course_place,
            apply_course_mail, notify_departure, check_route_events,
-           plan_campus_walk],
+           plan_campus_walk, plan_next_transition, get_rain_now, replan_commute,
+           draft_late_notice, check_attendance_now, draft_leave_notice,
+           apply_course_mail, notify_departure, check_route_events],
 )
